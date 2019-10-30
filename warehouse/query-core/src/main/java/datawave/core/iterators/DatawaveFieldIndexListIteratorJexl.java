@@ -1,6 +1,7 @@
 package datawave.core.iterators;
 
 import datawave.query.Constants;
+import datawave.query.jexl.DatawaveArithmetic;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Range;
 import org.apache.accumulo.core.data.Value;
@@ -13,6 +14,7 @@ import org.apache.hadoop.io.compress.CompressionCodec;
 import org.apache.lucene.store.DataInput;
 import org.apache.lucene.store.InputStreamDataInput;
 import org.apache.lucene.util.IntsRef;
+import org.apache.lucene.util.IntsRefBuilder;
 import org.apache.lucene.util.fst.FST;
 import org.apache.lucene.util.fst.NoOutputs;
 import org.apache.lucene.util.fst.Outputs;
@@ -109,7 +111,7 @@ public class DatawaveFieldIndexListIteratorJexl extends DatawaveFieldIndexCachin
             Key startKey = null;
             Key endKey = null;
             startKey = new Key(rowId, fiName);
-            endKey = new Key(rowId, new Text(fiName.toString() + Constants.NULL_BYTE_STRING));
+            endKey = new Key(rowId, new Text(fiName + Constants.NULL_BYTE_STRING));
             return new RangeSplitter(new Range(startKey, true, endKey, true), getMaxRangeSplit());
         } else {
             List<Range> ranges = new ArrayList<>();
@@ -153,7 +155,6 @@ public class DatawaveFieldIndexListIteratorJexl extends DatawaveFieldIndexCachin
      */
     @Override
     protected boolean matches(Key k) throws IOException {
-        boolean matches = false;
         String colq = k.getColumnQualifier().toString();
         
         // search backwards for the null bytes to expose the value in value\0datatype\0UID
@@ -161,24 +162,11 @@ public class DatawaveFieldIndexListIteratorJexl extends DatawaveFieldIndexCachin
         index = colq.lastIndexOf('\0', index - 1);
         String value = colq.substring(0, index);
         
-        if (this.fst != null) {
-            IntsRef ints = new IntsRef();
-            Util.toUTF16(value, ints);
-            
-            synchronized (this.fst) {
-                if (Util.get(this.fst, ints) != null) {
-                    matches = true;
-                }
-            }
-        } else {
-            matches = values.contains(value);
-        }
-        
-        return matches;
+        return (this.fst != null) ? DatawaveArithmetic.matchesFst(value, fst) : values.contains(value);
     }
     
     public static FST<?> getFST(SortedSet<String> values) throws IOException {
-        final IntsRef scratchInt = new IntsRef();
+        final IntsRefBuilder irBuilder = new IntsRefBuilder();
         // The builder options with defaults
         FST.INPUT_TYPE inputType = FST.INPUT_TYPE.BYTE1;
         int minSuffixCount1 = 0;
@@ -186,19 +174,18 @@ public class DatawaveFieldIndexListIteratorJexl extends DatawaveFieldIndexCachin
         boolean doShareSuffix = true;
         boolean doShareNonSingletonNodes = true;
         int shareMaxTailLength = Integer.MAX_VALUE;
-        boolean doPackFST = false;
-        float acceptableOverheadRatio = PackedInts.COMPACT;
+        
         boolean allowArrayArcs = true;
         int bytesPageBits = 15;
         final Outputs<Object> outputs = NoOutputs.getSingleton();
         
         // create the FST from the values
         org.apache.lucene.util.fst.Builder<Object> fstBuilder = new org.apache.lucene.util.fst.Builder<>(inputType, minSuffixCount1, minSuffixCount2,
-                        doShareSuffix, doShareNonSingletonNodes, shareMaxTailLength, outputs, null, doPackFST, acceptableOverheadRatio, allowArrayArcs,
-                        bytesPageBits);
+                        doShareSuffix, doShareNonSingletonNodes, shareMaxTailLength, outputs, allowArrayArcs, bytesPageBits);
         
         for (String value : values) {
-            Util.toUTF16(value, scratchInt);
+            Util.toUTF16(value, irBuilder);
+            final IntsRef scratchInt = irBuilder.get();
             fstBuilder.add(scratchInt, outputs.getNoOutput());
         }
         return fstBuilder.finish();

@@ -22,6 +22,7 @@ import org.apache.commons.jexl2.parser.ASTBitwiseComplNode;
 import org.apache.commons.jexl2.parser.ASTBitwiseOrNode;
 import org.apache.commons.jexl2.parser.ASTBitwiseXorNode;
 import org.apache.commons.jexl2.parser.ASTBlock;
+import org.apache.commons.jexl2.parser.ASTEvaluationOnly;
 import org.apache.commons.jexl2.parser.ASTConstructorNode;
 import org.apache.commons.jexl2.parser.ASTDelayedPredicate;
 import org.apache.commons.jexl2.parser.ASTDivNode;
@@ -97,7 +98,7 @@ public class ExecutableDeterminationVisitor extends BaseVisitor {
     private static final Logger log = Logger.getLogger(ExecutableDeterminationVisitor.class);
     
     private interface Output {
-        public void writeLine(String line);
+        void writeLine(String line);
     }
     
     private static class StringListOutput implements Output {
@@ -337,7 +338,7 @@ public class ExecutableDeterminationVisitor extends BaseVisitor {
     @Override
     public Object visit(ASTEQNode node, Object data) {
         STATE state;
-        if (isUnfielded(node)) {
+        if (isUnOrNoFielded(node)) {
             state = STATE.EXECUTABLE;
         } else if (isUnindexed(node)) {
             state = STATE.NON_EXECUTABLE;
@@ -357,7 +358,7 @@ public class ExecutableDeterminationVisitor extends BaseVisitor {
     @Override
     public Object visit(ASTNENode node, Object data) {
         STATE state;
-        if (isUnfielded(node)) {
+        if (isUnOrNoFielded(node)) {
             state = STATE.NON_EXECUTABLE;
         } else if (isUnindexed(node)) {
             state = STATE.NON_EXECUTABLE;
@@ -385,7 +386,7 @@ public class ExecutableDeterminationVisitor extends BaseVisitor {
             state = STATE.EXECUTABLE;
         }
         // if a delayed predicate, then this is not-executable against the index by choice
-        else if (ASTDelayedPredicate.instanceOf(node)) {
+        else if (ASTDelayedPredicate.instanceOf(node) || ASTEvaluationOnly.instanceOf(node)) {
             if (isNonEvent(node)) {
                 state = STATE.ERROR;
             } else {
@@ -404,7 +405,7 @@ public class ExecutableDeterminationVisitor extends BaseVisitor {
     public Object visit(ASTERNode node, Object data) {
         STATE state;
         // if we got here, then we were not wrapped in an ivarator, or in a delayed predicate. So we know it returns 0 results unless unindexed.
-        if (isUnfielded(node)) {
+        if (isUnOrNoFielded(node)) {
             state = STATE.EXECUTABLE;
         } else if (isUnindexed(node)) {
             state = STATE.NON_EXECUTABLE;
@@ -432,10 +433,10 @@ public class ExecutableDeterminationVisitor extends BaseVisitor {
         return state;
     }
     
-    private boolean isUnfielded(JexlNode node) {
+    private boolean isUnOrNoFielded(JexlNode node) {
         List<ASTIdentifier> identifiers = JexlASTHelper.getIdentifiers(node);
         for (ASTIdentifier identifier : identifiers) {
-            if (identifier.image.equals(Constants.ANY_FIELD)) {
+            if (identifier.image.equals(Constants.ANY_FIELD) || identifier.image.equals(Constants.NO_FIELD)) {
                 return true;
             }
         }
@@ -445,7 +446,7 @@ public class ExecutableDeterminationVisitor extends BaseVisitor {
     private boolean isUnindexed(JexlNode node) {
         List<ASTIdentifier> identifiers = JexlASTHelper.getIdentifiers(node);
         for (ASTIdentifier identifier : identifiers) {
-            if (!identifier.image.equals(Constants.ANY_FIELD)) {
+            if (!(identifier.image.equals(Constants.ANY_FIELD) || identifier.image.equals(Constants.NO_FIELD))) {
                 if (this.indexedFields == null) {
                     if (config.getIndexedFields() != null && !config.getIndexedFields().isEmpty()) {
                         this.indexedFields = config.getIndexedFields();

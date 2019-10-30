@@ -4,18 +4,15 @@ import datawave.query.attributes.Document;
 import datawave.query.iterator.DocumentIterator;
 import datawave.query.iterator.NestedIterator;
 import datawave.query.iterator.SeekableIterator;
-import datawave.query.iterator.filter.composite.CompositePredicateFilterer;
 import org.apache.accumulo.core.data.ByteSequence;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Range;
-import org.apache.commons.jexl2.parser.JexlNode;
 import org.apache.log4j.Logger;
 
 import java.io.IOException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Set;
 
 /**
  * Wraps an Accumulo iterator with a NestedIterator interface. This bridges the gap between an IndexIterator and a NestedIterator.
@@ -23,7 +20,7 @@ import java.util.Set;
  * 
  * 
  */
-public class IndexIteratorBridge implements NestedIterator<Key>, SeekableIterator, CompositePredicateFilterer {
+public class IndexIteratorBridge implements NestedIterator<Key>, SeekableIterator {
     private final static Logger log = Logger.getLogger(IndexIteratorBridge.class);
     
     /*
@@ -35,6 +32,11 @@ public class IndexIteratorBridge implements NestedIterator<Key>, SeekableIterato
      * Pointer to the next Key.
      */
     private Key next;
+    
+    /**
+     * track the last Key returned for move purposes
+     */
+    private Key prevKey;
     private Document prevDocument, nextDocument;
     
     public IndexIteratorBridge(DocumentIterator delegate) {
@@ -42,7 +44,7 @@ public class IndexIteratorBridge implements NestedIterator<Key>, SeekableIterato
     }
     
     public Key next() {
-        Key k = next;
+        prevKey = next;
         prevDocument = nextDocument;
         next = null;
         try {
@@ -58,18 +60,33 @@ public class IndexIteratorBridge implements NestedIterator<Key>, SeekableIterato
             throw new RuntimeException(e);
         }
         
-        return k;
+        return prevKey;
     }
     
     public boolean hasNext() {
         return next != null;
     }
     
+    /**
+     * Advance to the next Key in the iterator that is greater than or equal to minimum. First check the cached value in next, then check the delegate cached
+     * value in getTopValue(), finally advance the delegate
+     * 
+     * @param minimum
+     *            the minimum key to advance to
+     * @return the first Key greater than or equal to minimum found
+     * @throws IllegalStateException
+     *             if prevKey is greater than or equal to minimum
+     */
     public Key move(Key minimum) {
+        if (prevKey != null && prevKey.compareTo(minimum) >= 0) {
+            throw new IllegalStateException("Tried to call move when already at or beyond move point: topkey=" + prevKey + ", movekey=" + minimum);
+        }
+        
         /*
-         * If we are told to move to the Key that we current have cached, we don't have to do anything
+         * First check if the next Key to be returned meets the criteria and if so simply advance to it
          */
         if (this.hasNext() && this.next.compareTo(minimum) >= 0) {
+            // since next already contains the target, just advance to return that
             return next();
         }
         
@@ -77,12 +94,11 @@ public class IndexIteratorBridge implements NestedIterator<Key>, SeekableIterato
         // as to avoid the exception thrown by II.move(min)
         //
         // e.g. `next` is 'A', minimum is 'B', but delegate.tk is 'C'
-        if (delegate.hasTop() && delegate.getTopKey().compareTo(minimum) >= 0) {
+        if (delegate.hasTop() && delegate.getTopKey().compareTo(minimum) < 0) {
+            // at this point both layers of caching have been checked and its safe to advance the underlying delegate
             try {
-                next = delegate.getTopKey();
-                nextDocument = delegate.document();
-                delegate.next();
-                return next();
+                // advance source and put the first key >= minimum found into getTopKey()/getTopValue()
+                delegate.move(minimum);
             } catch (IOException e) {
                 log.error(e);
                 // throw the exception up the stack....
@@ -90,23 +106,12 @@ public class IndexIteratorBridge implements NestedIterator<Key>, SeekableIterato
             }
         }
         
-        try {
-            delegate.move(minimum);
-            
-            if (delegate.hasTop()) {
-                next = delegate.getTopKey();
-                nextDocument = delegate.document();
-                delegate.next();
-                return next();
-            }
-            
-        } catch (IOException e) {
-            log.error(e);
-            // throw the exception up the stack....
-            throw new RuntimeException(e);
-        }
+        // either delegate.getTopKey() already contained the target Key, or the move advanced to it
+        // advance current delegate.getTopKey() into next, discarding the current next
+        next();
         
-        return null;
+        // now return the value which was propagated into next with the previous call
+        return next();
     }
     
     /**
@@ -153,18 +158,12 @@ public class IndexIteratorBridge implements NestedIterator<Key>, SeekableIterato
     
     @Override
     public String toString() {
-        return "Bridge: " + delegate.toString();
+        return "Bridge: " + delegate;
     }
     
     @Override
     public Document document() {
         // If we can assert that this Document won't be reused, we can use _document()
         return prevDocument;
-    }
-    
-    @Override
-    public void addCompositePredicates(Set<JexlNode> compositePredicates) {
-        if (delegate instanceof CompositePredicateFilterer)
-            ((CompositePredicateFilterer) delegate).addCompositePredicates(compositePredicates);
     }
 }

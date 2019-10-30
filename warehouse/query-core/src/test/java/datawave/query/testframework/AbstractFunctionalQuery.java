@@ -2,41 +2,63 @@ package datawave.query.testframework;
 
 import com.google.common.collect.Sets;
 import datawave.data.type.Type;
-import datawave.marking.MarkingFunctions.NoOp;
+import datawave.marking.MarkingFunctions.Default;
 import datawave.query.QueryTestTableHelper;
 import datawave.query.attributes.Attribute;
 import datawave.query.attributes.Document;
+import datawave.query.config.ShardQueryConfiguration;
+import datawave.query.jexl.JexlASTHelper;
+import datawave.query.jexl.nodes.ExceededValueThresholdMarkerJexlNode;
+import datawave.query.jexl.visitors.TreeEqualityVisitor;
+import datawave.query.jexl.visitors.TreeFlatteningRebuildingVisitor;
 import datawave.query.planner.DefaultQueryPlanner;
 import datawave.query.tables.CountingShardQueryLogic;
 import datawave.query.tables.ShardQueryLogic;
-import datawave.query.tables.content.ContentQueryTable;
 import datawave.query.testframework.QueryLogicTestHarness.DocumentChecker;
+import datawave.query.transformer.ShardQueryCountTableTransformer;
 import datawave.query.util.DateIndexHelperFactory;
 import datawave.query.util.MetadataHelperFactory;
 import datawave.security.authorization.DatawavePrincipal;
 import datawave.security.authorization.DatawaveUser;
 import datawave.security.authorization.SubjectIssuerDNPair;
 import datawave.security.util.DnUtils;
+import datawave.webservice.common.connection.AccumuloConnectionFactory;
 import datawave.webservice.query.QueryImpl;
+import datawave.webservice.query.cache.QueryMetricFactoryImpl;
 import datawave.webservice.query.configuration.GenericQueryConfiguration;
 import datawave.webservice.query.result.event.DefaultResponseObjectFactory;
+import datawave.webservice.query.result.event.EventBase;
+import datawave.webservice.query.result.event.FieldBase;
+import datawave.webservice.query.runner.RunningQuery;
+import datawave.webservice.result.EventQueryResponseBase;
 import org.apache.accumulo.core.client.Connector;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.security.Authorizations;
+import org.apache.commons.collections4.iterators.TransformIterator;
+import org.apache.commons.jexl2.parser.ASTJexlScript;
+import org.apache.commons.jexl2.parser.ParseException;
 import org.apache.log4j.Logger;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
-
+import org.junit.ComparisonFailure;
+import org.junit.Rule;
 import java.io.File;
+import java.io.IOException;
 import java.net.URISyntaxException;
+import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.TimeZone;
 import java.util.UUID;
@@ -52,7 +74,12 @@ import java.util.UUID;
  */
 public abstract class AbstractFunctionalQuery implements QueryLogicTestHarness.TestResultParser {
     
+    protected static final String VALUE_THRESHOLD_JEXL_NODE = ExceededValueThresholdMarkerJexlNode.class.getSimpleName();
+    protected static final String FILTER_EXCLUDE_REGEX = "filter:excludeRegex";
+    
     private static final Logger log = Logger.getLogger(AbstractFunctionalQuery.class);
+    
+    private static final Random rVal = new Random(System.currentTimeMillis());
     
     static {
         TimeZone.setDefault(TimeZone.getTimeZone("GMT"));
@@ -95,8 +122,11 @@ public abstract class AbstractFunctionalQuery implements QueryLogicTestHarness.T
     protected Authorizations auths;
     protected String documentKey;
     protected ShardQueryLogic logic;
-    private QueryLogicTestHarness testHarness;
+    private CountingShardQueryLogic countLogic = new CountingShardQueryLogic();
+    protected QueryLogicTestHarness testHarness;
     protected DatawavePrincipal principal;
+    
+    protected Path temporaryFolder;
     
     private final Set<Authorizations> authSet = new HashSet<>();
     
@@ -104,42 +134,44 @@ public abstract class AbstractFunctionalQuery implements QueryLogicTestHarness.T
         this.dataManager = mgr;
     }
     
+    protected ShardQueryLogic createQueryLogic() {
+        return new ShardQueryLogic();
+    }
+    
     @Before
-    public void querySetUp() {
+    public void querySetUp() throws IOException {
+        temporaryFolder = Files.createTempDirectory("tmp");
+        
         log.debug("---------  querySetUp  ---------");
         
-        this.logic = new ShardQueryLogic();
+        this.logic = createQueryLogic();
         QueryTestTableHelper.configureLogicToScanTables(this.logic);
         
         this.logic.setFullTableScanEnabled(false);
         this.logic.setIncludeDataTypeAsField(true);
-        this.logic.setIncludeGroupingContext(true);
         
         this.logic.setDateIndexHelperFactory(new DateIndexHelperFactory());
-        this.logic.setMarkingFunctions(new NoOp());
+        this.logic.setMarkingFunctions(new Default());
         this.logic.setMetadataHelperFactory(new MetadataHelperFactory());
         this.logic.setQueryPlanner(new DefaultQueryPlanner());
         this.logic.setResponseObjectFactory(new DefaultResponseObjectFactory());
         
-        CountingShardQueryLogic countLogic = new CountingShardQueryLogic();
-        QueryTestTableHelper.configureLogicToScanTables(countLogic);
+        this.logic.setCollectTimingDetails(true);
+        this.logic.setLogTimingDetails(true);
+        this.logic.setMinimumSelectivity(0.03D);
+        this.logic.setMaxIndexScanTimeMillis(5000);
         
+        // count logic
         countLogic.setIncludeDataTypeAsField(true);
-        countLogic.setIncludeGroupingContext(true);
         countLogic.setFullTableScanEnabled(false);
         
         countLogic.setDateIndexHelperFactory(new DateIndexHelperFactory());
-        countLogic.setMarkingFunctions(new NoOp());
+        countLogic.setMarkingFunctions(new Default());
         countLogic.setMetadataHelperFactory(new MetadataHelperFactory());
         countLogic.setQueryPlanner(new DefaultQueryPlanner());
         countLogic.setResponseObjectFactory(new DefaultResponseObjectFactory());
         
-        ContentQueryTable contentLogic = new ContentQueryTable();
-        contentLogic.setMaxResults(5000);
-        contentLogic.setMaxRowsToScan(25000);
-        contentLogic.setTableName(QueryTestTableHelper.SHARD_TABLE_NAME);
-        contentLogic.setMarkingFunctions(new NoOp());
-        contentLogic.setResponseObjectFactory(new DefaultResponseObjectFactory());
+        QueryTestTableHelper.configureLogicToScanTables(countLogic);
         
         // init must set auths
         testInit();
@@ -158,13 +190,18 @@ public abstract class AbstractFunctionalQuery implements QueryLogicTestHarness.T
         this.testHarness = new QueryLogicTestHarness(this);
     }
     
+    @After
+    public void cleanUp() {
+        temporaryFolder.toFile().deleteOnExit();
+    }
+    
     // ============================================
     // abstract methods
     
     /**
      * Performs any instance initialization required for the specific test case.
      */
-    abstract protected void testInit();
+    protected abstract void testInit();
     
     // ============================================
     // implementation interface methods
@@ -191,6 +228,59 @@ public abstract class AbstractFunctionalQuery implements QueryLogicTestHarness.T
     // basic test execution methods
     
     /**
+     * This method should be called to determine if a marker node exists in the generated query, such as a ExceededValueThresholdMarkerJexlNode or
+     * ASTDelayedPredicate.
+     * 
+     * @param subStr
+     *            substring to find in the plan (maker node class name)
+     * @param expect
+     *            number of instances to find in the plan (use 0 for exclusion)
+     */
+    protected void parsePlan(String subStr, int expect) {
+        ShardQueryConfiguration config = this.logic.getConfig();
+        String plan = config.getQueryString();
+        int idx;
+        int total = 0;
+        do {
+            idx = plan.indexOf(subStr);
+            if (-1 < idx) {
+                total++;
+                plan = plan.substring(idx + subStr.length());
+            }
+        } while (-1 < idx);
+        Assert.assertEquals("marker (" + subStr + ")", expect, total);
+    }
+    
+    /**
+     * Helper method for determining the expected results for a query.
+     *
+     * @param query
+     *            query for evaluation
+     * @return expected results based upon the defined key for the datatype
+     */
+    protected Collection<String> getExpectedKeyResponse(final String query) {
+        Date[] startEndDate = this.dataManager.getShardStartEndDate();
+        return getExpectedKeyResponse(query, startEndDate[0], startEndDate[1]);
+    }
+    
+    /**
+     * Helper method for determining the expected results for a query.
+     *
+     * @param query
+     *            query for evaluation
+     * @param start
+     *            start date for evaluation
+     * @param end
+     *            end date for evaluation
+     * @return expected results based upon the defined key for the datatype
+     */
+    protected Collection<String> getExpectedKeyResponse(final String query, final Date start, final Date end) {
+        QueryJexl jexl = new QueryJexl(query, this.dataManager, start, end);
+        final Set<Map<String,String>> allData = jexl.evaluate();
+        return this.dataManager.getKeys(allData);
+    }
+    
+    /**
      * Base test execution. This will use the first and last shard dates for the date range.
      *
      * @param query
@@ -201,13 +291,30 @@ public abstract class AbstractFunctionalQuery implements QueryLogicTestHarness.T
      *             test error condition
      */
     protected void runTest(final String query, final String expectQuery) throws Exception {
+        runTest(query, expectQuery, (Map<String,String>) Collections.EMPTY_MAP);
+    }
+    
+    protected void runTest(final String query, final Collection<String> expectResp) throws Exception {
         Date[] startEndDate = this.dataManager.getShardStartEndDate();
-        
-        QueryJexl jexl = new QueryJexl(expectQuery, this.dataManager, startEndDate[0], startEndDate[1]);
-        final Set<Map<String,String>> allData = jexl.evaluate();
-        final Set<String> expected = this.dataManager.getKeys(allData);
-        
-        runTestQuery(expected, query, startEndDate[0], startEndDate[1]);
+        runTestQuery(expectResp, query, startEndDate[0], startEndDate[1]);
+    }
+    
+    protected void runTest(final String query, final String expectQuery, final Date startDate, final Date endDate) throws Exception {
+        final Collection<String> expected = getExpectedKeyResponse(expectQuery, startDate, endDate);
+        runTestQuery(expected, query, startDate, endDate);
+    }
+    
+    protected void runTest(final String query, final String expectQuery, final Map<String,String> options) throws Exception {
+        Date[] startEndDate = this.dataManager.getShardStartEndDate();
+        final Collection<String> expected = getExpectedKeyResponse(expectQuery);
+        runTestQuery(expected, query, startEndDate[0], startEndDate[1], options);
+    }
+    
+    protected void runTest(final String query, final String expectQuery, final Map<String,String> options, final List<DocumentChecker> checkers)
+                    throws Exception {
+        Date[] startEndDate = this.dataManager.getShardStartEndDate();
+        final Collection<String> expected = getExpectedKeyResponse(expectQuery);
+        runTestQuery(expected, query, startEndDate[0], startEndDate[1], options, checkers);
     }
     
     /**
@@ -224,6 +331,11 @@ public abstract class AbstractFunctionalQuery implements QueryLogicTestHarness.T
      */
     protected void runTestQuery(Collection<String> expected, String queryStr, Date startDate, Date endDate) throws Exception {
         runTestQuery(expected, queryStr, startDate, endDate, Collections.emptyMap());
+    }
+    
+    protected void runTestQuery(Collection<String> expected, String queryStr) throws Exception {
+        Date[] startEndDate = this.dataManager.getShardStartEndDate();
+        runTestQuery(expected, queryStr, startEndDate[0], startEndDate[1], Collections.emptyMap());
     }
     
     /**
@@ -262,7 +374,9 @@ public abstract class AbstractFunctionalQuery implements QueryLogicTestHarness.T
      */
     protected void runTestQuery(Collection<String> expected, String queryStr, Date startDate, Date endDate, Map<String,String> options,
                     List<DocumentChecker> checkers) throws Exception {
-        log.debug("  query(" + queryStr + ")  start(" + YMD_DateFormat.format(startDate) + ")  end(" + YMD_DateFormat.format(endDate) + ")");
+        if (log.isDebugEnabled()) {
+            log.debug("  query[" + queryStr + "]  start(" + YMD_DateFormat.format(startDate) + ")  end(" + YMD_DateFormat.format(endDate) + ")");
+        }
         QueryImpl q = new QueryImpl();
         q.setBeginDate(startDate);
         q.setEndDate(endDate);
@@ -275,6 +389,195 @@ public abstract class AbstractFunctionalQuery implements QueryLogicTestHarness.T
         
         GenericQueryConfiguration config = this.logic.initialize(connector, q, this.authSet);
         this.logic.setupQuery(config);
+        if (log.isDebugEnabled()) {
+            log.debug("Plan: " + config.getQueryString());
+        }
         testHarness.assertLogicResults(this.logic, expected, checkers);
+    }
+    
+    /**
+     * Executes test cases that use {@link CountingShardQueryLogic}.
+     *
+     * @param query
+     *            query for evaluation
+     * @throws Exception
+     *             error condition during execution of query
+     */
+    protected void runCountTest(String query) throws Exception {
+        Date[] startEndDate = this.dataManager.getShardStartEndDate();
+        if (log.isDebugEnabled()) {
+            log.debug("  count query[" + query + "]  start(" + YMD_DateFormat.format(startEndDate[0]) + ")  end(" + YMD_DateFormat.format(startEndDate[1])
+                            + ")");
+        }
+        
+        QueryImpl q = new QueryImpl();
+        q.setBeginDate(startEndDate[0]);
+        q.setEndDate(startEndDate[1]);
+        q.setQuery(query);
+        
+        q.setId(UUID.randomUUID());
+        q.setPagesize(Integer.MAX_VALUE);
+        q.setQueryAuthorizations(auths.toString());
+        
+        RunningQuery runner = new RunningQuery(connector, AccumuloConnectionFactory.Priority.NORMAL, this.countLogic, q, "", principal,
+                        new QueryMetricFactoryImpl());
+        TransformIterator it = runner.getTransformIterator();
+        ShardQueryCountTableTransformer ctt = (ShardQueryCountTableTransformer) it.getTransformer();
+        EventQueryResponseBase resp = (EventQueryResponseBase) ctt.createResponse(runner.next());
+        
+        Collection<String> expect = getExpectedKeyResponse(query);
+        
+        List<EventBase> events = resp.getEvents();
+        Assert.assertEquals(1, events.size());
+        EventBase<?,?> event = events.get(0);
+        List<?> fields = event.getFields();
+        Assert.assertEquals(1, fields.size());
+        FieldBase<?> count = (FieldBase) fields.get(0);
+        String val = count.getValueString();
+        if (log.isDebugEnabled()) {
+            log.debug("expected count(" + expect.size() + ") actual count(" + val + ")");
+        }
+        Assert.assertEquals("" + expect.size(), val);
+    }
+    
+    /**
+     * Used by test cases that verify the configuration.
+     *
+     * @param queryStr
+     *            query string for evaluation
+     * @return query configuration
+     * @throws Exception
+     *             error condition from query initialization
+     */
+    protected GenericQueryConfiguration setupConfig(final String queryStr) throws Exception {
+        Date[] startEndDate = this.dataManager.getShardStartEndDate();
+        if (log.isDebugEnabled()) {
+            log.debug("  query[" + queryStr + "]  start(" + YMD_DateFormat.format(startEndDate[0]) + ")  end(" + YMD_DateFormat.format(startEndDate[1]) + ")");
+        }
+        
+        QueryImpl q = new QueryImpl();
+        q.setBeginDate(startEndDate[0]);
+        q.setEndDate(startEndDate[1]);
+        q.setQuery(queryStr);
+        
+        q.setId(UUID.randomUUID());
+        q.setPagesize(Integer.MAX_VALUE);
+        q.setQueryAuthorizations(auths.toString());
+        
+        return this.logic.initialize(connector, q, this.authSet);
+    }
+    
+    /**
+     * Used by test cases that verify the plan
+     *
+     * @param queryStr
+     *            query string for evaluation
+     * @param expandFields
+     *            whether to use the index for anyfield expansion
+     * @param expandValues
+     *            whether to use the index for regex/range expansion
+     * @return query configuration
+     * @throws Exception
+     *             error condition from query initialization
+     */
+    protected String getPlan(final String queryStr, boolean expandFields, boolean expandValues) throws Exception {
+        Date[] startEndDate = this.dataManager.getShardStartEndDate();
+        if (log.isDebugEnabled()) {
+            log.debug("  query[" + queryStr + "]  start(" + YMD_DateFormat.format(startEndDate[0]) + ")  end(" + YMD_DateFormat.format(startEndDate[1]) + ")");
+        }
+        
+        QueryImpl q = new QueryImpl();
+        q.setBeginDate(startEndDate[0]);
+        q.setEndDate(startEndDate[1]);
+        q.setQuery(queryStr);
+        
+        q.setId(UUID.randomUUID());
+        q.setPagesize(Integer.MAX_VALUE);
+        q.setQueryAuthorizations(auths.toString());
+        
+        return this.logic.getPlan(connector, q, this.authSet, expandFields, expandValues);
+    }
+    
+    /**
+     * Configures the Ivarator cache to use a single HDFS directory.
+     *
+     * @throws IOException
+     *             error creating cache
+     */
+    protected void ivaratorConfig() throws IOException {
+        ivaratorConfig(1, false);
+    }
+    
+    /**
+     * Configures an Ivarator FST cache to use for a single HDFS directory.
+     *
+     * @throws IOException
+     *             error creating cache
+     */
+    protected void ivaratorFstConfig() throws IOException {
+        ivaratorConfig(1, true);
+    }
+    
+    /**
+     * Configures the Ivarator cache. Each cache directory is created as a separate directory.
+     *
+     * @param hdfsLocations
+     *            number of HDFS locations to configure
+     * @param fst
+     *            when true screate a FST ivarator cache
+     * @throws IOException
+     *             error creating HDFS cache directory
+     */
+    protected void ivaratorConfig(final int hdfsLocations, final boolean fst) throws IOException {
+        final URL hdfsConfig = this.getClass().getResource("/testhadoop.config");
+        Assert.assertNotNull(hdfsConfig);
+        this.logic.setHdfsSiteConfigURLs(hdfsConfig.toExternalForm());
+        
+        final List<String> dirs = new ArrayList<>();
+        final List<String> fstDirs = new ArrayList<>();
+        for (int d = 1; d <= hdfsLocations; d++) {
+            // avoid threading issues by using a random number as part of the directory path to create a distinct directory
+            int rand = rVal.nextInt(Integer.MAX_VALUE);
+            Path ivCache = Files.createTempDirectory("ivarator.cache-" + rand);
+            dirs.add(ivCache.toAbsolutePath().toString());
+            if (fst) {
+                ivCache = Files.createTempDirectory("ivarator.cache-" + "fst-" + rand);
+                fstDirs.add(ivCache.toAbsolutePath().toString());
+            }
+        }
+        String uriList = String.join(",", dirs);
+        log.info("hdfs dirs(" + uriList + ")");
+        this.logic.setIvaratorCacheBaseURIs(uriList);
+        if (fst) {
+            uriList = String.join(",", fstDirs);
+            log.info("fst dirs(" + uriList + ")");
+            this.logic.setIvaratorFstHdfsBaseURIs(uriList);
+        }
+    }
+    
+    /**
+     * assertQuery is almost the same as Assert.assertEquals except that it will allow for different orderings of the terms within an AND or and OR.
+     * 
+     * @param expected
+     *            The expected query
+     * @param query
+     *            The query being tested
+     */
+    protected void assertPlanEquals(String expected, String query) throws ParseException {
+        // first do the quick check
+        if (expected.equals(query)) {
+            return;
+        }
+        
+        ASTJexlScript expectedTree = JexlASTHelper.parseJexlQuery(expected);
+        expectedTree = TreeFlatteningRebuildingVisitor.flattenAll(expectedTree);
+        ASTJexlScript queryTree = JexlASTHelper.parseJexlQuery(query);
+        queryTree = TreeFlatteningRebuildingVisitor.flattenAll(queryTree);
+        TreeEqualityVisitor.Reason reason = new TreeEqualityVisitor.Reason();
+        boolean equal = TreeEqualityVisitor.isEqual(expectedTree, queryTree, reason);
+        
+        if (!equal) {
+            throw new ComparisonFailure(reason.reason, expected, query);
+        }
     }
 }

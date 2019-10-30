@@ -2,7 +2,6 @@ package datawave.query.language.functions.lucene;
 
 import datawave.query.jexl.functions.QueryFunctions;
 import datawave.query.language.functions.QueryFunction;
-import datawave.query.search.WildcardFieldedFilter;
 import datawave.webservice.query.exception.BadRequestQueryException;
 import datawave.webservice.query.exception.DatawaveErrorCode;
 import org.apache.lucene.queryparser.flexible.core.nodes.AndQueryNode;
@@ -25,7 +24,7 @@ public class Unique extends LuceneQueryFunction {
     
     @Override
     public void validate() throws IllegalArgumentException {
-        if (this.parameterList.size() % 2 != 0) { // must have even number of args
+        if (this.parameterList.isEmpty()) {
             BadRequestQueryException qe = new BadRequestQueryException(DatawaveErrorCode.INVALID_FUNCTION_ARGUMENTS, MessageFormat.format("{0}", this.name));
             throw new IllegalArgumentException(qe);
         }

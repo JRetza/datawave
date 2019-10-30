@@ -4,9 +4,6 @@ import com.google.common.collect.TreeMultimap;
 import datawave.query.attributes.Document;
 import datawave.query.iterator.NestedIterator;
 import datawave.query.iterator.Util;
-import datawave.query.iterator.filter.composite.CompositePredicateFilter;
-import datawave.query.iterator.filter.composite.CompositePredicateFilterer;
-import org.apache.commons.jexl2.parser.JexlNode;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -26,7 +23,7 @@ import java.util.Set;
  * 
  * @param <T>
  */
-public class OrIterator<T extends Comparable<T>> implements NestedIterator<T>, CompositePredicateFilterer {
+public class OrIterator<T extends Comparable<T>> implements NestedIterator<T> {
     // temporary stores of uninitialized streams of iterators
     private List<NestedIterator<T>> includes, excludes;
     
@@ -39,6 +36,7 @@ public class OrIterator<T extends Comparable<T>> implements NestedIterator<T>, C
     // UIDs. When this is true, we cannot advance iterators based on returned keys.
     private final boolean sortedUIDs;
     
+    private T prev;
     private T next;
     
     private Document prevDocument, document;
@@ -101,8 +99,14 @@ public class OrIterator<T extends Comparable<T>> implements NestedIterator<T>, C
         return next != null;
     }
     
+    /**
+     * return the previously found next and set its document. If there are more head references, get the lowest that is not filtered, advancing all iterators
+     * tied to lowest and set next/document for the next call
+     * 
+     * @return the previously found next
+     */
     public T next() {
-        T returnVal = next;
+        prev = next;
         prevDocument = document;
         
         while (!includeHeads.isEmpty()) {
@@ -118,36 +122,51 @@ public class OrIterator<T extends Comparable<T>> implements NestedIterator<T>, C
         }
         
         // the loop couldn't find a new next, so set next to null because we're done after this
-        if (returnVal == next) {
+        if (prev == next) {
             next = null;
         }
         
-        return returnVal;
+        return prev;
     }
     
+    /**
+     * Test all layers of cache for the minimum, then if necessary advance heads
+     * 
+     * @param minimum
+     *            the minimum to return
+     * @return the first greater than or equal to minimum or null if none exists
+     * @throws IllegalStateException
+     *             if prev is greater than or equal to minimum
+     */
     public T move(T minimum) {
         if (null == includeHeads) {
             throw new IllegalStateException("initialize() was never called");
         }
         
-        Set<T> headSet = includeHeads.keySet().headSet(minimum);
+        // test preconditions
+        if (prev != null && prev.compareTo(minimum) >= 0) {
+            throw new IllegalStateException("Tried to call move when already at or beyond move point: topkey=" + prev + ", movekey=" + minimum);
+        }
         
-        // If we are already at `minimum`, we can just call next which will
-        // return the current next and seed the next.
-        if (headSet.isEmpty()) {
+        // test if the cached next is already beyond the minimum
+        if (next != null && next.compareTo(minimum) >= 0) {
+            // simply advance to next
             return next();
         }
         
-        // first let's make sure all of the sub trees are at least at `minimum`
+        Set<T> headSet = includeHeads.keySet().headSet(minimum);
+        
+        // some iterators need to be moved into the target range before recalculating the next
         Iterator<T> topKeys = new LinkedList<>(headSet).iterator();
         while (!includeHeads.isEmpty() && topKeys.hasNext()) {
+            // advance each iterator that is under the threshold
             includeHeads = moveIterators(topKeys.next(), minimum);
         }
         
-        next = null;
+        // next < minimum, so advance throwing next away and re-populating next with what should be >= minimum
         next();
         
-        // now find the next match and return it; return <code>null</code> if not
+        // now as long as the newly computed next exists return it and advance
         if (hasNext()) {
             return next();
         } else {
@@ -256,12 +275,5 @@ public class OrIterator<T extends Comparable<T>> implements NestedIterator<T>, C
         sb.append(excludes);
         
         return sb.toString();
-    }
-    
-    @Override
-    public void addCompositePredicates(Set<JexlNode> compositePredicates) {
-        for (NestedIterator include : includes)
-            if (include instanceof CompositePredicateFilter)
-                ((CompositePredicateFilter) include).addCompositePredicates(compositePredicates);
     }
 }

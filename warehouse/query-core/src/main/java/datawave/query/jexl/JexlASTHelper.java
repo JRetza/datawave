@@ -34,6 +34,7 @@ import org.apache.commons.jexl2.parser.ASTAssignment;
 import org.apache.commons.jexl2.parser.ASTDelayedPredicate;
 import org.apache.commons.jexl2.parser.ASTEQNode;
 import org.apache.commons.jexl2.parser.ASTERNode;
+import org.apache.commons.jexl2.parser.ASTEvaluationOnly;
 import org.apache.commons.jexl2.parser.ASTFalseNode;
 import org.apache.commons.jexl2.parser.ASTFunctionNode;
 import org.apache.commons.jexl2.parser.ASTGENode;
@@ -60,6 +61,7 @@ import org.apache.commons.jexl2.parser.JexlNodes;
 import org.apache.commons.jexl2.parser.ParseException;
 import org.apache.commons.jexl2.parser.Parser;
 import org.apache.commons.jexl2.parser.ParserTreeConstants;
+import org.apache.commons.jexl2.parser.TokenMgrError;
 import org.apache.log4j.Logger;
 
 import java.io.StringReader;
@@ -68,15 +70,19 @@ import java.math.BigInteger;
 import java.text.MessageFormat;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import static org.apache.commons.jexl2.parser.JexlNodes.children;
 
 /**
  *
@@ -120,7 +126,11 @@ public class JexlASTHelper {
         caseFixQuery = caseFixQuery.replaceAll("\\s+[Nn][Oo][Tt]\\s+", " not ");
         
         // Parse the query
-        return parser.parse(new StringReader(caseFixQuery), null);
+        try {
+            return parser.parse(new StringReader(caseFixQuery), null);
+        } catch (TokenMgrError e) {
+            throw new ParseException(e.getMessage());
+        }
     }
     
     /**
@@ -1073,7 +1083,7 @@ public class JexlASTHelper {
     protected static boolean isDelayedPredicate(JexlNode currNode) {
         if (ASTDelayedPredicate.instanceOf(currNode) || ExceededOrThresholdMarkerJexlNode.instanceOf(currNode)
                         || ExceededValueThresholdMarkerJexlNode.instanceOf(currNode) || ExceededTermThresholdMarkerJexlNode.instanceOf(currNode)
-                        || IndexHoleMarkerJexlNode.instanceOf(currNode))
+                        || IndexHoleMarkerJexlNode.instanceOf(currNode) || ASTEvaluationOnly.instanceOf(currNode))
             return true;
         else
             return false;
@@ -1437,14 +1447,66 @@ public class JexlASTHelper {
         return maxSelectivity;
     }
     
+    /**
+     * Checks to see if the tree contains any null children, children with null parents, or children with conflicting parentage.
+     *
+     * @param rootNode
+     *            the tree to validate
+     * @param failHard
+     *            whether or not to throw an exception if validation fails
+     * @return true if valid, false otherwise
+     */
+    // checks to see if the tree contains any null children, children with null parents, or children with conflicting parentage
+    public static boolean validateLineage(JexlNode rootNode, boolean failHard) {
+        boolean result = true;
+        
+        // add all the nodes to the stack and iterate...
+        Deque<JexlNode> workingStack = new LinkedList<>();
+        workingStack.push(rootNode);
+        
+        // go through all of the nodes from parent to children, and ensure that parent and child relationships are correct
+        while (!workingStack.isEmpty()) {
+            JexlNode node = workingStack.pop();
+            
+            if (node.jjtGetNumChildren() > 0) {
+                for (JexlNode child : children(node)) {
+                    if (child != null) {
+                        if (child.jjtGetParent() == null) {
+                            if (failHard)
+                                throw new RuntimeException("Failed to validate lineage: Tree included a child with a null parent.");
+                            else
+                                log.error("Failed to validate lineage: Tree included a child with a null parent.");
+                            
+                            result = false;
+                        } else if (child.jjtGetParent() != node) {
+                            if (failHard)
+                                throw new RuntimeException("Failed to validate lineage:  Included a child with a conflicting parent.");
+                            else
+                                log.error("Failed to validate lineage:  Included a child with a conflicting parent.");
+                            
+                            result = false;
+                        }
+                        workingStack.push(child);
+                    } else {
+                        if (failHard)
+                            throw new RuntimeException("Failed to validate lineage: Included a null child.");
+                        else
+                            log.error("Failed to validate lineage: Included a null child.");
+                        
+                        result = false;
+                    }
+                }
+            }
+        }
+        return result;
+    }
+    
     private JexlASTHelper() {}
     
     public static JexlNode addEqualityToOr(ASTOrNode lhsSource, ASTEQNode rhsSource) {
-        ASTOrNode orNode = lhsSource;
-        ASTEQNode copyNode = rhsSource;
-        orNode.jjtAddChild(copyNode, orNode.jjtGetNumChildren());
-        copyNode.jjtSetParent(orNode);
-        return orNode;
+        lhsSource.jjtAddChild(rhsSource, lhsSource.jjtGetNumChildren());
+        rhsSource.jjtSetParent(lhsSource);
+        return lhsSource;
     }
     
     public static class HasMethodVisitor extends BaseVisitor {

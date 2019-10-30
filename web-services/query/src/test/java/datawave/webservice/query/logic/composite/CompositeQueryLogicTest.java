@@ -221,6 +221,12 @@ public class CompositeQueryLogicTest {
         public void setupQuery(GenericQueryConfiguration configuration) throws Exception {}
         
         @Override
+        public String getPlan(Connector connection, Query settings, Set<Authorizations> runtimeQueryAuthorizations, boolean expandFields, boolean expandValues)
+                        throws Exception {
+            return "";
+        }
+        
+        @Override
         public Priority getConnectionPriority() {
             return Priority.NORMAL;
         }
@@ -232,7 +238,7 @@ public class CompositeQueryLogicTest {
         
         @Override
         public QueryLogicTransformer getTransformer(Query settings) {
-            return new TestQueryLogicTransformer(new MarkingFunctions.NoOp());
+            return new TestQueryLogicTransformer(new MarkingFunctions.Default());
         }
         
         @Override
@@ -291,7 +297,7 @@ public class CompositeQueryLogicTest {
         
         @Override
         public QueryLogicTransformer getTransformer(Query settings) {
-            return new TestQueryLogicTransformer(new MarkingFunctions.NoOp());
+            return new TestQueryLogicTransformer(new MarkingFunctions.Default());
         }
         
         @Override
@@ -311,13 +317,19 @@ public class CompositeQueryLogicTest {
         public void setupQuery(GenericQueryConfiguration configuration) throws Exception {}
         
         @Override
+        public String getPlan(Connector connection, Query settings, Set<Authorizations> runtimeQueryAuthorizations, boolean expandFields, boolean expandValues)
+                        throws Exception {
+            return "";
+        }
+        
+        @Override
         public Priority getConnectionPriority() {
             return Priority.NORMAL;
         }
         
         @Override
         public QueryLogicTransformer getTransformer(Query settings) {
-            return new DifferentTestQueryLogicTransformer(new MarkingFunctions.NoOp());
+            return new DifferentTestQueryLogicTransformer(new MarkingFunctions.Default());
         }
         
         @Override
@@ -346,7 +358,7 @@ public class CompositeQueryLogicTest {
     @Before
     public void setup() {
         System.setProperty(NpeUtils.NPE_OU_PROPERTY, "iamnotaperson");
-        System.setProperty("metadatahelper.default.auths", "A,B,C,D");
+        System.setProperty("dw.metadatahelper.all.auths", "A,B,C,D");
     }
     
     @Test(expected = RuntimeException.class)
@@ -419,7 +431,7 @@ public class CompositeQueryLogicTest {
         c.initialize((Connector) null, (Query) settings, Collections.singleton(auths));
     }
     
-    @Test(expected = RuntimeException.class)
+    @Test
     public void testInitializeWithDifferentResponseTypes() throws Exception {
         
         List<BaseQueryLogic<?>> logics = new ArrayList<>();
@@ -529,7 +541,7 @@ public class CompositeQueryLogicTest {
     
     @Test
     // testQueryLogic with max.results.override is set
-    public void testQueryLogicwithMaxResultsOverride() throws Exception {
+    public void testQueryLogicWithMaxResultsOverride() throws Exception {
         Logger.getLogger(CompositeQueryLogic.class).setLevel(Level.TRACE);
         Logger.getLogger(CompositeQueryLogicResults.class).setLevel(Level.TRACE);
         Logger.getLogger(CompositeQueryLogicTransformer.class).setLevel(Level.TRACE);
@@ -556,7 +568,7 @@ public class CompositeQueryLogicTest {
         settings.setId(UUID.randomUUID());
         
         CompositeQueryLogic c = new CompositeQueryLogic();
-        // max.results.override is set to -1 when it is not passed in as it is an optional paramter
+        // max.results.override is set to -1 when it is not passed in as it is an optional parameter
         logic1.setMaxResults(0);
         logic2.setMaxResults(4);
         /**

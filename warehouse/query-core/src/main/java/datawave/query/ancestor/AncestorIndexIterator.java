@@ -1,7 +1,6 @@
 package datawave.query.ancestor;
 
 import datawave.query.iterator.logic.IndexIterator;
-import datawave.query.predicate.TimeFilter;
 import datawave.query.tld.TLD;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Range;
@@ -38,7 +37,7 @@ public class AncestorIndexIterator extends IndexIterator {
         String startCf = (start == null || start.getColumnFamily() == null ? "" : start.getColumnFamily().toString());
         
         // if the start key is inclusive, and contains a datatype/0UID, then move back to the top level ancestor
-        if (r.isStartKeyInclusive() && startCf.length() > 0) {
+        if (r.isStartKeyInclusive() && !startCf.isEmpty()) {
             // parse out the uid and replace with the root parent uid
             int index = startCf.indexOf('\0');
             if (index > 0) {

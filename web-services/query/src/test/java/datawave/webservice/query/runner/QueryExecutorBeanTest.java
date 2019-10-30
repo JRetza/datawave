@@ -26,6 +26,7 @@ import datawave.webservice.query.QueryImpl;
 import datawave.webservice.query.QueryParameters;
 import datawave.webservice.query.QueryParametersImpl;
 import datawave.webservice.query.QueryPersistence;
+import datawave.webservice.query.cache.ClosedQueryCache;
 import datawave.webservice.query.cache.CreatedQueryLogicCacheBean;
 import datawave.webservice.query.cache.CreatedQueryLogicCacheBean.Triple;
 import datawave.webservice.query.cache.QueryCache;
@@ -131,6 +132,7 @@ public class QueryExecutorBeanTest {
     
     // QueryExecutorBean dependencies
     private QueryCache cache;
+    private ClosedQueryCache closedCache;
     private AccumuloConnectionRequestBean connectionRequestBean;
     private AccumuloConnectionFactory connectionFactory;
     private AuditBean auditor;
@@ -150,12 +152,14 @@ public class QueryExecutorBeanTest {
     @Before
     public void setup() throws Exception {
         System.setProperty(NpeUtils.NPE_OU_PROPERTY, "iamnotaperson");
-        System.setProperty("metadatahelper.default.auths", "A,B,C,D");
+        System.setProperty("dw.metadatahelper.all.auths", "A,B,C,D");
         QueryTraceCache traceCache = new QueryTraceCache();
         Whitebox.invokeMethod(traceCache, "init");
         
         cache = new QueryCache();
         cache.init();
+        
+        closedCache = new ClosedQueryCache();
         
         bean = new QueryExecutorBean();
         
@@ -177,6 +181,7 @@ public class QueryExecutorBeanTest {
         setInternalState(auditor, AuditParameterBuilder.class, new DefaultAuditParameterBuilder());
         setInternalState(connectionRequestBean, EJBContext.class, ctx);
         setInternalState(bean, QueryCache.class, cache);
+        setInternalState(bean, ClosedQueryCache.class, closedCache);
         setInternalState(bean, AccumuloConnectionFactory.class, connectionFactory);
         setInternalState(bean, AuditBean.class, auditor);
         setInternalState(bean, QueryMetricsBean.class, metrics);
@@ -228,6 +233,8 @@ public class QueryExecutorBeanTest {
     
     private MultivaluedMap createNewQueryParameterMap() throws Exception {
         MultivaluedMap<String,String> p = new MultivaluedMapImpl<>();
+        p.putSingle(QueryParameters.QUERY_STRING, "foo == 'bar'");
+        p.putSingle(QueryParameters.QUERY_NAME, "query name");
         p.putSingle(QueryParameters.QUERY_AUTHORIZATIONS, StringUtils.join(auths, ","));
         p.putSingle(QueryParameters.QUERY_BEGIN, QueryParametersImpl.formatDate(beginDate));
         p.putSingle(QueryParameters.QUERY_END, QueryParametersImpl.formatDate(endDate));
@@ -297,7 +304,6 @@ public class QueryExecutorBeanTest {
         String queryName = "Something";
         String query = "FOO == BAR";
         Date beginDate = new Date();
-        Date endDate = beginDate;
         Date expirationDate = DateUtils.addDays(new Date(), 1);
         int pagesize = 10;
         QueryPersistence persist = QueryPersistence.TRANSIENT;
@@ -311,7 +317,7 @@ public class QueryExecutorBeanTest {
         auths[1] = "PUBLIC";
         QueryImpl q = new QueryImpl();
         q.setBeginDate(beginDate);
-        q.setEndDate(endDate);
+        q.setEndDate(beginDate);
         q.setExpirationDate(expirationDate);
         q.setPagesize(pagesize);
         q.setParameters(parameters);
@@ -326,7 +332,7 @@ public class QueryExecutorBeanTest {
         MultivaluedMap<String,String> p = new MultivaluedMapImpl<>();
         p.putSingle(QueryParameters.QUERY_AUTHORIZATIONS, "");
         p.putSingle(QueryParameters.QUERY_BEGIN, QueryParametersImpl.formatDate(beginDate));
-        p.putSingle(QueryParameters.QUERY_END, QueryParametersImpl.formatDate(endDate));
+        p.putSingle(QueryParameters.QUERY_END, QueryParametersImpl.formatDate(beginDate));
         p.putSingle(QueryParameters.QUERY_EXPIRATION, QueryParametersImpl.formatDate(expirationDate));
         p.putSingle(QueryParameters.QUERY_NAME, queryName);
         p.putSingle(QueryParameters.QUERY_PAGESIZE, Integer.toString(pagesize));
@@ -380,6 +386,7 @@ public class QueryExecutorBeanTest {
     public void testDefine() throws Exception {
         QueryImpl q = createNewQuery();
         MultivaluedMap p = createNewQueryParameterMap();
+        p.putSingle(QueryParameters.QUERY_LOGIC_NAME, "EventQueryLogic");
         
         defineTestRunner(q, p);
     }
@@ -389,6 +396,7 @@ public class QueryExecutorBeanTest {
     public void testPredict() throws Exception {
         QueryImpl q = createNewQuery();
         MultivaluedMap p = createNewQueryParameterMap();
+        p.putSingle(QueryParameters.QUERY_LOGIC_NAME, queryLogicName);
         
         MultivaluedMap<String,String> optionalParameters = createNewQueryParameters(q, p);
         
@@ -440,9 +448,9 @@ public class QueryExecutorBeanTest {
                                     .append(this.getLifecycle(), other.getLifecycle()).append(this.getErrorMessage(), other.getErrorMessage())
                                     .append(this.getErrorCode(), other.getErrorCode()).append(this.getSourceCount(), other.getSourceCount())
                                     .append(this.getNextCount(), other.getNextCount()).append(this.getSeekCount(), other.getSeekCount())
-                                    .append(this.getDocRanges(), other.getDocRanges()).append(this.getFiRanges(), other.getFiRanges())
-                                    .append(this.getPlan(), other.getPlan()).append(this.getLoginTime(), other.getLoginTime())
-                                    .append(this.getPredictions(), other.getPredictions()).isEquals();
+                                    .append(this.getYieldCount(), other.getYieldCount()).append(this.getDocRanges(), other.getDocRanges())
+                                    .append(this.getFiRanges(), other.getFiRanges()).append(this.getPlan(), other.getPlan())
+                                    .append(this.getLoginTime(), other.getLoginTime()).append(this.getPredictions(), other.getPredictions()).isEquals();
                 } else {
                     return false;
                 }
@@ -524,7 +532,7 @@ public class QueryExecutorBeanTest {
     }
     
     // @Test
-    public void testListWithNoName() throws URISyntaxException, CloneNotSupportedException {
+    public void testListWithNoName() throws URISyntaxException {
         // setup test
         request = MockHttpRequest.get("/DataWave/Query/list");
         
@@ -596,6 +604,7 @@ public class QueryExecutorBeanTest {
         queryParameters.putSingle(QueryParameters.QUERY_END, QueryParametersImpl.formatDate(endDate));
         
         try {
+            queryParameters.putSingle(QueryParameters.QUERY_LOGIC_NAME, "EventQueryLogic");
             bean.createQuery("EventQueryLogic", queryParameters);
             fail(); // If doesn't throw exception, should fail
         } catch (BadRequestException e) {
@@ -609,6 +618,7 @@ public class QueryExecutorBeanTest {
         QueryImpl q = createNewQuery();
         
         final MultivaluedMap<String,String> queryParameters = createNewQueryParameterMap();
+        queryParameters.putSingle(QueryParameters.QUERY_LOGIC_NAME, "EventQueryLogic");
         
         final Thread createQuery = new Thread(() -> {
             try {
@@ -637,27 +647,21 @@ public class QueryExecutorBeanTest {
         Connector c = instance.getConnector("root", new PasswordToken(""));
         
         MultivaluedMap<String,String> optionalParameters = createNewQueryParameters(q, queryParameters);
-        // QueryParameters qp = new QueryParametersImpl();
-        // qp.validate(queryParameters);
-        // MultivaluedMap<String,String> optionalParameters = qp.getUnknownParameters(queryParameters);
-        // optionalParameters.putSingle(AuditParameters.USER_DN, principal.getUserDN().subjectDN());
-        // optionalParameters.putSingle(AuditParameters.QUERY_SECURITY_MARKING_COLVIZ, q.getColumnVisibility());
-        // optionalParameters.putSingle("logicClass", queryLogicName);
         
         PowerMock.resetAll();
         EasyMock.expect(ctx.getCallerPrincipal()).andReturn(principal).anyTimes();
         EasyMock.expect(logic.getAuditType(null)).andReturn(AuditType.NONE);
         EasyMock.expect(persister.create(principal.getUserDN().subjectDN(), dnList, Whitebox.getInternalState(bean, SecurityMarking.class), queryLogicName,
                         Whitebox.getInternalState(bean, QueryParameters.class), optionalParameters)).andReturn(q);
-        persister.remove(q);
-        EasyMock.expect(connectionFactory.getTrackingMap((StackTraceElement[]) anyObject())).andReturn(Maps.<String,String> newHashMap()).anyTimes();
+        EasyMock.expect(persister.findById(EasyMock.anyString())).andReturn(null).anyTimes();
+        EasyMock.expect(connectionFactory.getTrackingMap(anyObject())).andReturn(Maps.newHashMap()).anyTimes();
         
         BaseQueryMetric metric = new QueryMetricFactoryImpl().createMetric();
         q.populateMetric(metric);
         EasyMock.expectLastCall();
         metric.setQueryType(RunningQuery.class.getSimpleName());
         metric.setLifecycle(Lifecycle.DEFINED);
-        System.out.println(metric.toString());
+        System.out.println(metric);
         
         Set<Prediction> predictions = new HashSet<>();
         predictions.add(new Prediction("source", 1));
@@ -665,8 +669,7 @@ public class QueryExecutorBeanTest {
         
         connectionRequestBean.requestBegin(q.getId().toString());
         EasyMock.expectLastCall();
-        EasyMock.expect(connectionFactory.getConnection(eq("connPool1"), (AccumuloConnectionFactory.Priority) anyObject(), (Map<String,String>) anyObject()))
-                        .andReturn(c).anyTimes();
+        EasyMock.expect(connectionFactory.getConnection(eq("connPool1"), anyObject(), anyObject())).andReturn(c).anyTimes();
         connectionRequestBean.requestEnd(q.getId().toString());
         EasyMock.expectLastCall();
         connectionFactory.returnConnection(c);
@@ -679,7 +682,7 @@ public class QueryExecutorBeanTest {
         EasyMock.expect(logic.getAuditType(q)).andReturn(AuditType.NONE);
         EasyMock.expect(logic.getConnPoolName()).andReturn("connPool1");
         
-        EasyMock.expect(connectionRequestBean.cancelConnectionRequest(q.getId().toString(), principal)).andReturn(false);
+        EasyMock.expect(connectionRequestBean.cancelConnectionRequest(q.getId().toString(), principal)).andReturn(false).anyTimes();
         connectionFactory.returnConnection(EasyMock.isA(Connector.class));
         
         final AtomicBoolean initializeLooping = new AtomicBoolean(false);
@@ -752,6 +755,7 @@ public class QueryExecutorBeanTest {
             
             // Should have already joined by now, but just to be sure
             createQuery.join();
+            
         } finally {
             if (null != createQuery && createQuery.isAlive()) {
                 createQuery.interrupt();

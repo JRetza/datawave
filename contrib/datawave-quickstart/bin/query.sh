@@ -450,7 +450,7 @@ function configureUserIdentity() {
     DW_PKI_TMP_DIR="${DW_DATAWAVE_DATA_DIR}"/pki-temp
 
     DW_PKCS12_CLIENT_CERT=${DW_PKCS12_CLIENT_CERT:-"${DW_DATAWAVE_SOURCE_DIR}"/web-services/deploy/application/src/main/wildfly/overlay/standalone/configuration/certificates/testUser.p12}
-    DW_CLIENT_CERT_PASS=${DW_CLIENT_CERT_PASS:-secret}
+    DW_CLIENT_CERT_PASS=${DW_CLIENT_CERT_PASS:-ChangeIt}
 
     DW_CURL_CERT="${DW_PKI_TMP_DIR}/testUser.pem"
     DW_CURL_KEY="${DW_PKI_TMP_DIR}/testUser.key"
@@ -487,9 +487,11 @@ function reloadDataWaveTableCache() {
     # Note that, by design, the reload endpoint invocation below is asynchronous, so there will still be at least a slight
     # delay before the refresh takes effect
 
-    local cachedTableNames=( "DatawaveMetadata QueryMetrics_m errorMetadata" )
+    DW_CACHED_TABLE_NAMES=${DW_CACHED_TABLE_NAMES:-"datawave.metadata datawave.queryMetrics_m datawave.error_m"}
 
-    info "Reloading metadata table cache for the following tables: ${cachedTableNames}"
+    local cachedTableNames=( ${DW_CACHED_TABLE_NAMES} )
+
+    info "Reloading metadata table cache for the following tables: ${DW_CACHED_TABLE_NAMES}"
 
     configureUserIdentity
 

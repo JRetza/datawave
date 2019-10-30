@@ -7,9 +7,6 @@ import java.util.List;
 import datawave.query.jexl.JexlNodeFactory;
 
 import datawave.query.jexl.visitors.QueryPropertyMarkerVisitor;
-import org.apache.commons.jexl2.parser.ASTAndNode;
-import org.apache.commons.jexl2.parser.ASTAssignment;
-import org.apache.commons.jexl2.parser.ASTIdentifier;
 import org.apache.commons.jexl2.parser.ASTReference;
 import org.apache.commons.jexl2.parser.ASTReferenceExpression;
 import org.apache.commons.jexl2.parser.JexlNode;
@@ -60,7 +57,7 @@ public class QueryPropertyMarker extends ASTReference {
         JexlNode refNode2 = JexlNodeFactory.createExpression(source);
         
         // wrap the assignment and source in an AND node
-        JexlNode andNode = JexlNodeFactory.createUnwrappedAndNode(Arrays.asList(new JexlNode[] {refNode1, refNode2}));
+        JexlNode andNode = JexlNodeFactory.createUnwrappedAndNode(Arrays.asList(refNode1, refNode2));
         
         // wrap the and node with an expression (see JexlNodeFactory.createAndNode)
         ASTReferenceExpression refExpNode1 = new ASTReferenceExpression(ParserTreeConstants.JJTREFERENCEEXPRESSION);

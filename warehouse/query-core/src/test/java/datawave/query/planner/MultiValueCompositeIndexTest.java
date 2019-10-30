@@ -23,10 +23,11 @@ import datawave.ingest.table.config.ShardTableConfigHelper;
 import datawave.ingest.table.config.TableConfigHelper;
 import datawave.policy.IngestPolicyEnforcer;
 import datawave.query.config.ShardQueryConfiguration;
-import datawave.query.config.ShardQueryConfigurationFactory;
 import datawave.query.metrics.MockStatusReporter;
 import datawave.query.tables.ShardQueryLogic;
-import datawave.webservice.edgedictionary.TestDatawaveEdgeDictionaryImpl;
+import datawave.query.tables.edge.DefaultEdgeEventQueryLogic;
+import datawave.util.TableName;
+import datawave.webservice.edgedictionary.RemoteEdgeDictionary;
 import datawave.webservice.query.Query;
 import datawave.webservice.query.QueryImpl;
 import datawave.webservice.query.QueryParameters;
@@ -34,6 +35,19 @@ import datawave.webservice.query.QueryParametersImpl;
 import datawave.webservice.query.configuration.QueryData;
 import datawave.webservice.query.result.event.DefaultEvent;
 import datawave.webservice.query.result.event.DefaultField;
+import java.io.UnsupportedEncodingException;
+import java.net.URL;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
+import javax.inject.Inject;
+import javax.ws.rs.core.MultivaluedMap;
 import org.apache.accumulo.core.client.BatchWriter;
 import org.apache.accumulo.core.client.BatchWriterConfig;
 import org.apache.accumulo.core.client.Connector;
@@ -57,23 +71,12 @@ import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
-import javax.inject.Inject;
-import javax.ws.rs.core.MultivaluedMap;
-import java.io.UnsupportedEncodingException;
-import java.net.URL;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Set;
-import java.util.stream.Collectors;
-
+import static datawave.query.testframework.RawDataManager.JEXL_AND_OP;
 import static datawave.webservice.query.QueryParameters.QUERY_AUTHORIZATIONS;
 import static datawave.webservice.query.QueryParameters.QUERY_BEGIN;
 import static datawave.webservice.query.QueryParameters.QUERY_END;
 import static datawave.webservice.query.QueryParameters.QUERY_EXPIRATION;
+import static datawave.webservice.query.QueryParameters.QUERY_LOGIC_NAME;
 import static datawave.webservice.query.QueryParameters.QUERY_NAME;
 import static datawave.webservice.query.QueryParameters.QUERY_PERSISTENCE;
 import static datawave.webservice.query.QueryParameters.QUERY_STRING;
@@ -82,12 +85,6 @@ import static datawave.webservice.query.QueryParameters.QUERY_STRING;
 public class MultiValueCompositeIndexTest {
     
     private static final int NUM_SHARDS = 241;
-    private static final String SHARD_TABLE_NAME = "shard";
-    private static final String KNOWLEDGE_SHARD_TABLE_NAME = "knowledgeShard";
-    private static final String ERROR_SHARD_TABLE_NAME = "errorShard";
-    private static final String SHARD_INDEX_TABLE_NAME = "shardIndex";
-    private static final String SHARD_REVERSE_INDEX_TABLE_NAME = "shardReverseIndex";
-    private static final String METADATA_TABLE_NAME = "DatawaveMetadata";
     private static final String DATA_TYPE_NAME = "wkt";
     private static final String INGEST_HELPER_CLASS = TestIngestHelper.class.getName();
     
@@ -168,7 +165,8 @@ public class MultiValueCompositeIndexTest {
         return ShrinkWrap
                         .create(JavaArchive.class)
                         .addPackages(true, "org.apache.deltaspike", "io.astefanutti.metrics.cdi", "datawave.query", "datawave.webservice.query.result.event")
-                        .addClass(TestDatawaveEdgeDictionaryImpl.class)
+                        .deleteClass(DefaultEdgeEventQueryLogic.class)
+                        .deleteClass(RemoteEdgeDictionary.class)
                         .deleteClass(datawave.query.metrics.QueryMetricQueryLogic.class)
                         .deleteClass(datawave.query.metrics.ShardTableQueryMetricHandler.class)
                         .addAsManifestResource(
@@ -181,10 +179,10 @@ public class MultiValueCompositeIndexTest {
         testData.add(new TestData(Arrays.asList("POLYGON ((-120 20, -100 20, -100 60, -120 60, -120 20))", "POINT (45 -45)"), Arrays.asList(55, 15)));
         
         // Test Data with 2 wkt and 1 number
-        testData.add(new TestData(Arrays.asList("POLYGON ((-110 -15, -105 -15, -105 -10, -110 -10, -110 -15))", "POINT (45 45)"), Arrays.asList(60)));
+        testData.add(new TestData(Arrays.asList("POLYGON ((-110 -15, -105 -15, -105 -10, -110 -10, -110 -15))", "POINT (45 45)"), Collections.singletonList(60)));
         
         // Test Data with 1 wkt and 2 numbers
-        testData.add(new TestData(Arrays.asList("POINT (0 0)"), Arrays.asList(11, 22)));
+        testData.add(new TestData(Collections.singletonList("POINT (0 0)"), Arrays.asList(11, 22)));
         
     }
     
@@ -248,9 +246,8 @@ public class MultiValueCompositeIndexTest {
     
     public static void setupConfiguration(Configuration conf) {
         String compositeFieldName = GEO_FIELD;
-        conf.set(DATA_TYPE_NAME + BaseIngestHelper.COMPOSITE_FIELD_NAMES, compositeFieldName);
-        conf.set(DATA_TYPE_NAME + BaseIngestHelper.COMPOSITE_FIELD_MEMBERS, GEO_FIELD + "." + WKT_BYTE_LENGTH_FIELD);
-        conf.set(DATA_TYPE_NAME + BaseIngestHelper.COMPOSITE_FIELDS_FIXED_LENGTH, compositeFieldName);
+        conf.set(DATA_TYPE_NAME + "." + compositeFieldName + BaseIngestHelper.COMPOSITE_FIELD_MAP,
+                        String.join(",", new String[] {GEO_FIELD, WKT_BYTE_LENGTH_FIELD}));
         
         conf.set(DATA_TYPE_NAME + BaseIngestHelper.INDEX_FIELDS, GEO_FIELD + ((!compositeFieldName.equals(GEO_FIELD)) ? "," + compositeFieldName : ""));
         conf.set(DATA_TYPE_NAME + "." + GEO_FIELD + BaseIngestHelper.FIELD_TYPE, GeometryType.class.getName());
@@ -261,22 +258,22 @@ public class MultiValueCompositeIndexTest {
         conf.set(TypeRegistry.INGEST_DATA_TYPES, DATA_TYPE_NAME);
         conf.set(DATA_TYPE_NAME + TypeRegistry.INGEST_HELPER, INGEST_HELPER_CLASS);
         
-        conf.set(ShardedDataTypeHandler.METADATA_TABLE_NAME, METADATA_TABLE_NAME);
+        conf.set(ShardedDataTypeHandler.METADATA_TABLE_NAME, TableName.METADATA);
         conf.set(ShardedDataTypeHandler.NUM_SHARDS, Integer.toString(NUM_SHARDS));
-        conf.set(ShardedDataTypeHandler.SHARDED_TNAMES, SHARD_TABLE_NAME + "," + KNOWLEDGE_SHARD_TABLE_NAME + "," + ERROR_SHARD_TABLE_NAME);
-        conf.set(ShardedDataTypeHandler.SHARD_TNAME, SHARD_TABLE_NAME);
+        conf.set(ShardedDataTypeHandler.SHARDED_TNAMES, TableName.SHARD + "," + TableName.ERROR_SHARD);
+        conf.set(ShardedDataTypeHandler.SHARD_TNAME, TableName.SHARD);
         conf.set(ShardedDataTypeHandler.SHARD_LPRIORITY, "30");
-        conf.set(SHARD_TABLE_NAME + TableConfigHelper.TABLE_CONFIG_CLASS_SUFFIX, ShardTableConfigHelper.class.getName());
-        conf.set(ShardedDataTypeHandler.SHARD_GIDX_TNAME, SHARD_INDEX_TABLE_NAME);
+        conf.set(TableName.SHARD + TableConfigHelper.TABLE_CONFIG_CLASS_SUFFIX, ShardTableConfigHelper.class.getName());
+        conf.set(ShardedDataTypeHandler.SHARD_GIDX_TNAME, TableName.SHARD_INDEX);
         conf.set(ShardedDataTypeHandler.SHARD_GIDX_LPRIORITY, "30");
-        conf.set(SHARD_INDEX_TABLE_NAME + TableConfigHelper.TABLE_CONFIG_CLASS_SUFFIX, ShardTableConfigHelper.class.getName());
-        conf.set(ShardedDataTypeHandler.SHARD_GRIDX_TNAME, SHARD_REVERSE_INDEX_TABLE_NAME);
+        conf.set(TableName.SHARD_INDEX + TableConfigHelper.TABLE_CONFIG_CLASS_SUFFIX, ShardTableConfigHelper.class.getName());
+        conf.set(ShardedDataTypeHandler.SHARD_GRIDX_TNAME, TableName.SHARD_RINDEX);
         conf.set(ShardedDataTypeHandler.SHARD_GRIDX_LPRIORITY, "30");
-        conf.set(SHARD_REVERSE_INDEX_TABLE_NAME + TableConfigHelper.TABLE_CONFIG_CLASS_SUFFIX, ShardTableConfigHelper.class.getName());
+        conf.set(TableName.SHARD_RINDEX + TableConfigHelper.TABLE_CONFIG_CLASS_SUFFIX, ShardTableConfigHelper.class.getName());
         conf.set(ShardTableConfigHelper.MARKINGS_SETUP_ITERATOR_ENABLED, "false");
         conf.set(ShardTableConfigHelper.MARKINGS_SETUP_ITERATOR_CONFIG, "");
         conf.set("partitioner.category.shardedTables", BalancedShardPartitioner.class.getName());
-        conf.set("partitioner.category.member." + SHARD_TABLE_NAME, "shardedTables");
+        conf.set("partitioner.category.member." + TableName.SHARD, "shardedTables");
     }
     
     private static void writeKeyValues(Connector connector, Multimap<BulkIngestKey,Value> keyValues) throws Exception {
@@ -300,14 +297,15 @@ public class MultiValueCompositeIndexTest {
     
     @Test
     public void compositeWithoutIvaratorTest() throws Exception {
-        String query = "((" + GEO_FIELD + " >= '0311' && " + GEO_FIELD + " <= '0312') && " + WKT_BYTE_LENGTH_FIELD + " == 15) ||" + "(" + GEO_FIELD
-                        + " == '1f20aaaaaaaaaaaaaa' && (" + WKT_BYTE_LENGTH_FIELD + " >= 59 && " + WKT_BYTE_LENGTH_FIELD + " <= 61)) ||" + "(" + GEO_FIELD
-                        + " == '1f0aaaaaaaaaaaaaaa' && " + WKT_BYTE_LENGTH_FIELD + " == 22)";
+        String query = "((" + GEO_FIELD + " >= '0311'" + JEXL_AND_OP + GEO_FIELD + " <= '0312')" + JEXL_AND_OP + WKT_BYTE_LENGTH_FIELD + " == 15) ||" + "("
+                        + GEO_FIELD + " == '1f20aaaaaaaaaaaaaa'" + JEXL_AND_OP + "(" + WKT_BYTE_LENGTH_FIELD + " >= 59" + JEXL_AND_OP + WKT_BYTE_LENGTH_FIELD
+                        + " <= 61)) ||" + "(" + GEO_FIELD + " == '1f0aaaaaaaaaaaaaaa'" + JEXL_AND_OP + WKT_BYTE_LENGTH_FIELD + " >= 22)";
         
         List<QueryData> queries = getQueryRanges(query, false);
         Assert.assertEquals(3, queries.size());
         
         List<DefaultEvent> events = getQueryResults(query, false);
+        Assert.assertEquals(3, events.size());
         
         for (DefaultEvent event : events) {
             List<String> wkt = new ArrayList<>();
@@ -329,14 +327,15 @@ public class MultiValueCompositeIndexTest {
     
     @Test
     public void compositeWithIvaratorTest() throws Exception {
-        String query = "((" + GEO_FIELD + " >= '0311' && " + GEO_FIELD + " <= '0312') && " + WKT_BYTE_LENGTH_FIELD + " == 15) ||" + "(" + GEO_FIELD
-                        + " == '1f20aaaaaaaaaaaaaa' && (" + WKT_BYTE_LENGTH_FIELD + " >= 59 && " + WKT_BYTE_LENGTH_FIELD + " <= 61)) ||" + "(" + GEO_FIELD
-                        + " == '1f0aaaaaaaaaaaaaaa' && " + WKT_BYTE_LENGTH_FIELD + " == 22)";
+        String query = "((" + GEO_FIELD + " >= '0311'" + JEXL_AND_OP + GEO_FIELD + " <= '0312')" + JEXL_AND_OP + WKT_BYTE_LENGTH_FIELD + " == 15) ||" + "("
+                        + GEO_FIELD + " == '1f20aaaaaaaaaaaaaa'" + JEXL_AND_OP + "(" + WKT_BYTE_LENGTH_FIELD + " >= 59" + JEXL_AND_OP + WKT_BYTE_LENGTH_FIELD
+                        + " <= 61)) ||" + "(" + GEO_FIELD + " == '1f0aaaaaaaaaaaaaaa'" + JEXL_AND_OP + WKT_BYTE_LENGTH_FIELD + " >= 22)";
         
         List<QueryData> queries = getQueryRanges(query, true);
         Assert.assertEquals(732, queries.size());
         
         List<DefaultEvent> events = getQueryResults(query, true);
+        Assert.assertEquals(3, events.size());
         
         for (DefaultEvent event : events) {
             List<String> wkt = new ArrayList<>();
@@ -380,6 +379,7 @@ public class MultiValueCompositeIndexTest {
         MultivaluedMap<String,String> params = new MultivaluedMapImpl<>();
         params.putSingle(QUERY_STRING, queryString);
         params.putSingle(QUERY_NAME, "geoQuery");
+        params.putSingle(QUERY_LOGIC_NAME, "EventQueryLogic");
         params.putSingle(QUERY_PERSISTENCE, "PERSISTENT");
         params.putSingle(QUERY_AUTHORIZATIONS, AUTHS);
         params.putSingle(QUERY_EXPIRATION, "20200101 000000.000");
@@ -395,7 +395,7 @@ public class MultiValueCompositeIndexTest {
         Query query = new QueryImpl();
         query.initialize(USER, Arrays.asList(USER_DN), null, queryParams, null);
         
-        ShardQueryConfiguration config = ShardQueryConfigurationFactory.createShardQueryConfigurationFromConfiguredLogic(logic, query);
+        ShardQueryConfiguration config = ShardQueryConfiguration.create(logic, query);
         
         logic.initialize(config, instance.getConnector("root", PASSWORD), query, auths);
         
@@ -408,6 +408,7 @@ public class MultiValueCompositeIndexTest {
         MultivaluedMap<String,String> params = new MultivaluedMapImpl<>();
         params.putSingle(QUERY_STRING, queryString);
         params.putSingle(QUERY_NAME, "geoQuery");
+        params.putSingle(QUERY_LOGIC_NAME, "EventQueryLogic");
         params.putSingle(QUERY_PERSISTENCE, "PERSISTENT");
         params.putSingle(QUERY_AUTHORIZATIONS, AUTHS);
         params.putSingle(QUERY_EXPIRATION, "20200101 000000.000");
@@ -423,7 +424,7 @@ public class MultiValueCompositeIndexTest {
         Query query = new QueryImpl();
         query.initialize(USER, Arrays.asList(USER_DN), null, queryParams, null);
         
-        ShardQueryConfiguration config = ShardQueryConfigurationFactory.createShardQueryConfigurationFromConfiguredLogic(logic, query);
+        ShardQueryConfiguration config = ShardQueryConfiguration.create(logic, query);
         
         logic.initialize(config, instance.getConnector("root", PASSWORD), query, auths);
         

@@ -8,18 +8,21 @@ import datawave.query.jexl.nodes.IndexHoleMarkerJexlNode;
 import datawave.query.jexl.nodes.QueryPropertyMarker;
 import org.apache.commons.jexl2.parser.ASTAndNode;
 import org.apache.commons.jexl2.parser.ASTAssignment;
+import org.apache.commons.jexl2.parser.ASTEvaluationOnly;
 import org.apache.commons.jexl2.parser.ASTDelayedPredicate;
 import org.apache.commons.jexl2.parser.ASTOrNode;
-import org.apache.commons.jexl2.parser.ASTCompositePredicate;
 import org.apache.commons.jexl2.parser.ASTReference;
 import org.apache.commons.jexl2.parser.ASTReferenceExpression;
 import org.apache.commons.jexl2.parser.JexlNode;
-import org.apache.commons.jexl2.parser.JexlNodes;
 
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
+
+import static org.apache.commons.jexl2.parser.JexlNodes.children;
 
 /**
  * This class is used to determine whether the specified node is an instance of a query marker. The reason for this functionality is that if the query is
@@ -38,8 +41,8 @@ public class QueryPropertyMarkerVisitor extends BaseVisitor {
     static {
         TYPE_IDENTIFIERS = new HashSet<>();
         TYPE_IDENTIFIERS.add(IndexHoleMarkerJexlNode.class.getSimpleName());
-        TYPE_IDENTIFIERS.add(ASTCompositePredicate.class.getSimpleName());
         TYPE_IDENTIFIERS.add(ASTDelayedPredicate.class.getSimpleName());
+        TYPE_IDENTIFIERS.add(ASTEvaluationOnly.class.getSimpleName());
         TYPE_IDENTIFIERS.add(ExceededValueThresholdMarkerJexlNode.class.getSimpleName());
         TYPE_IDENTIFIERS.add(ExceededTermThresholdMarkerJexlNode.class.getSimpleName());
         TYPE_IDENTIFIERS.add(ExceededOrThresholdMarkerJexlNode.class.getSimpleName());
@@ -103,36 +106,52 @@ public class QueryPropertyMarkerVisitor extends BaseVisitor {
     
     @Override
     public Object visit(ASTAndNode node, Object data) {
-        if (node.jjtGetNumChildren() > 1) {
-            // if this is an and node with multiple children, and it is
-            // the first one we've found, it is our potential candidate
-            if (data == null) {
-                List<JexlNode> siblingNodes = new ArrayList<>();
+        // if this is an and node, and it is the first one we've
+        // found, it is our potential candidate
+        if (data == null) {
+            List<JexlNode> siblingNodes = new ArrayList<>();
+            
+            Deque<JexlNode> siblings = new LinkedList<>();
+            Deque<JexlNode> stack = new LinkedList<>();
+            stack.push(node);
+            
+            // for the purposes of this method, nested and nodes are
+            // ignored, and their children are handled as direct children
+            // of the parent and node.
+            while (!stack.isEmpty()) {
+                JexlNode descendant = stack.pop();
                 
-                // check each child to see if we found our identifier, and
-                // save off the siblings as potential source nodes
-                for (JexlNode child : JexlNodes.children(node)) {
+                if (descendant instanceof ASTAndNode) {
+                    for (JexlNode sibling : children(descendant))
+                        stack.push(sibling);
+                } else {
+                    siblings.push(descendant);
+                }
+            }
+            
+            // check each child to see if we found our identifier, and
+            // save off the siblings as potential source nodes
+            for (JexlNode child : siblings) {
+                
+                // don't look for identifiers if we already found what we were looking for
+                if (!identifierFound) {
+                    Set<String> foundIdentifiers = new HashSet<>();
+                    child.jjtAccept(this, foundIdentifiers);
                     
-                    // don't look for identifiers if we already found what we were looking for
-                    if (!identifierFound) {
-                        Set<String> foundIdentifiers = new HashSet<>();
-                        child.jjtAccept(this, foundIdentifiers);
-                        
-                        foundIdentifiers.retainAll(typeIdentifiers);
-                        
-                        // if we found our identifier, proceed to the next child node
-                        if (!foundIdentifiers.isEmpty()) {
-                            identifierFound = true;
-                            continue;
-                        }
+                    foundIdentifiers.retainAll(typeIdentifiers);
+                    
+                    // if we found our identifier, proceed to the next child node
+                    if (!foundIdentifiers.isEmpty()) {
+                        identifierFound = true;
+                        continue;
                     }
-                    
-                    siblingNodes.add(child);
                 }
                 
-                if (identifierFound)
-                    sourceNodes = siblingNodes;
+                siblingNodes.add(child);
             }
+            
+            if (identifierFound)
+                sourceNodes = siblingNodes;
         }
         return null;
     }

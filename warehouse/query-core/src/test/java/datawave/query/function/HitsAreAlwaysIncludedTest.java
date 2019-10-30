@@ -9,10 +9,11 @@ import datawave.query.attributes.Attribute;
 import datawave.query.attributes.Attributes;
 import datawave.query.attributes.Content;
 import datawave.query.attributes.Document;
+import datawave.webservice.edgedictionary.RemoteEdgeDictionary;
 import datawave.query.function.deserializer.KryoDocumentDeserializer;
 import datawave.query.tables.ShardQueryLogic;
+import datawave.query.tables.edge.DefaultEdgeEventQueryLogic;
 import datawave.query.util.LimitFieldsTestingIngest;
-import datawave.webservice.edgedictionary.TestDatawaveEdgeDictionaryImpl;
 import datawave.webservice.query.QueryImpl;
 import datawave.webservice.query.configuration.GenericQueryConfiguration;
 import org.apache.accumulo.core.client.Connector;
@@ -124,7 +125,8 @@ public abstract class HitsAreAlwaysIncludedTest {
                         .create(JavaArchive.class)
                         .addPackages(true, "org.apache.deltaspike", "io.astefanutti.metrics.cdi", "datawave.query", "org.jboss.logging",
                                         "datawave.webservice.query.result.event")
-                        .addClass(TestDatawaveEdgeDictionaryImpl.class)
+                        .deleteClass(DefaultEdgeEventQueryLogic.class)
+                        .deleteClass(RemoteEdgeDictionary.class)
                         .deleteClass(datawave.query.metrics.QueryMetricQueryLogic.class)
                         .deleteClass(datawave.query.metrics.ShardTableQueryMetricHandler.class)
                         .addAsManifestResource(
@@ -218,13 +220,13 @@ public abstract class HitsAreAlwaysIncludedTest {
             
             Assert.assertTrue(goodResults + " was not empty", goodResults.isEmpty());
         }
-        Assert.assertTrue("No docs were returned!", docs.size() > 0);
+        Assert.assertTrue("No docs were returned!", !docs.isEmpty());
     }
     
     @Test
     public void checkThePattern() {
         String[] tokens = LimitFields.getCommonalityAndGroupingContext("FOO_3.FOO.3.3");
-        Assert.assertTrue(tokens.length == 2);
+        Assert.assertEquals(2, tokens.length);
         Assert.assertEquals(tokens[0], "FOO");
         Assert.assertEquals(tokens[1], "3");
         
@@ -232,7 +234,7 @@ public abstract class HitsAreAlwaysIncludedTest {
         Assert.assertNull(tokens);
         
         tokens = LimitFields.getCommonalityAndGroupingContext("FOO_3_BAR.FOO.3");
-        Assert.assertTrue(tokens.length == 2);
+        Assert.assertEquals(2, tokens.length);
         Assert.assertEquals(tokens[0], "FOO");
         Assert.assertEquals(tokens[1], "3");
     }

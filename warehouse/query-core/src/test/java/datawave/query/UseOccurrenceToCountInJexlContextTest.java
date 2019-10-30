@@ -72,6 +72,7 @@ public abstract class UseOccurrenceToCountInJexlContextTest {
         
         @BeforeClass
         public static void setUp() throws Exception {
+            System.setProperty("dw.metadatahelper.all.auths", "A,B,C,D,T,U,V,W,X,Y,Z");
             QueryTestTableHelper qtth = new QueryTestTableHelper(UseOccurrenceToCountInJexlContextTest.ShardRange.class.toString(), log);
             connector = qtth.connector;
             
@@ -94,6 +95,7 @@ public abstract class UseOccurrenceToCountInJexlContextTest {
         
         @BeforeClass
         public static void setUp() throws Exception {
+            System.setProperty("dw.metadatahelper.all.auths", "A,B,C,D,T,U,V,W,X,Y,Z");
             QueryTestTableHelper qtth = new QueryTestTableHelper(UseOccurrenceToCountInJexlContextTest.DocumentRange.class.toString(), log);
             connector = qtth.connector;
             
@@ -147,11 +149,11 @@ public abstract class UseOccurrenceToCountInJexlContextTest {
         logic.setIndexTableName(QueryTestTableHelper.SHARD_INDEX_TABLE_NAME);
         logic.setReverseIndexTableName(QueryTestTableHelper.SHARD_RINDEX_TABLE_NAME);
         logic.setMaxResults(5000);
-        logic.setMaxRowsToScan(25000);
+        logic.setMaxWork(25000);
         logic.setModelTableName(QueryTestTableHelper.METADATA_TABLE_NAME);
         logic.setQueryPlanner(new DefaultQueryPlanner());
         logic.setIncludeGroupingContext(true);
-        logic.setMarkingFunctions(new MarkingFunctions.NoOp());
+        logic.setMarkingFunctions(new MarkingFunctions.Default());
         logic.setMetadataHelperFactory(new MetadataHelperFactory());
         logic.setDateIndexHelperFactory(new DateIndexHelperFactory());
         logic.setMaxEvaluationPipelines(1);
@@ -224,9 +226,8 @@ public abstract class UseOccurrenceToCountInJexlContextTest {
                     }
                 }
             } else if (hitTermAttribute instanceof Attribute) {
-                Attribute<?> hitTerm = (Attribute<?>) hitTermAttribute;
-                log.debug("hitTerm:" + hitTerm);
-                String hitString = hitTerm.getData().toString();
+                log.debug("hitTerm:" + (Attribute<?>) hitTermAttribute);
+                String hitString = ((Attribute<?>) hitTermAttribute).getData().toString();
                 log.debug("as string:" + hitString);
                 log.debug("expectedHitTerms:" + expectedHitTerms);
                 boolean result = expectedHitTerms.get(uuid).remove(hitString);
@@ -234,7 +235,8 @@ public abstract class UseOccurrenceToCountInJexlContextTest {
                     log.debug("failed to find hitString:" + hitString + " for uuid:" + uuid + " in expectedHitTerms:" + expectedHitTerms);
                     Assert.fail("failed to find hitString:" + hitString + " for uuid:" + uuid + " in expectedHitTerms:" + expectedHitTerms);
                 } else {
-                    log.debug("removed hitString:" + hitString + " for uuid:" + uuid + " in expectedHitTerms:" + expectedHitTerms + " from hitTerm:" + hitTerm);
+                    log.debug("removed hitString:" + hitString + " for uuid:" + uuid + " in expectedHitTerms:" + expectedHitTerms + " from hitTerm:"
+                                    + (Attribute<?>) hitTermAttribute);
                 }
             }
             

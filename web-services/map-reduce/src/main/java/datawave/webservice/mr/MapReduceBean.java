@@ -1,48 +1,5 @@
 package datawave.webservice.mr;
 
-import java.io.IOException;
-import java.io.OutputStream;
-import java.security.Principal;
-import java.text.MessageFormat;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.LinkedList;
-import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
-import java.util.Properties;
-import java.util.Queue;
-import java.util.Set;
-import java.util.UUID;
-
-import javax.annotation.Resource;
-import javax.annotation.security.DeclareRoles;
-import javax.annotation.security.RolesAllowed;
-import javax.ejb.EJBContext;
-import javax.ejb.LocalBean;
-import javax.ejb.Stateless;
-import javax.ejb.TransactionAttribute;
-import javax.ejb.TransactionAttributeType;
-import javax.ejb.TransactionManagement;
-import javax.ejb.TransactionManagementType;
-import javax.inject.Inject;
-import javax.servlet.http.HttpServletResponse;
-import javax.ws.rs.DELETE;
-import javax.ws.rs.DefaultValue;
-import javax.ws.rs.FormParam;
-import javax.ws.rs.GET;
-import javax.ws.rs.POST;
-import javax.ws.rs.PUT;
-import javax.ws.rs.PathParam;
-import javax.ws.rs.Produces;
-import javax.ws.rs.QueryParam;
-import javax.ws.rs.WebApplicationException;
-import javax.ws.rs.core.Context;
-import javax.ws.rs.core.MultivaluedMap;
-import javax.ws.rs.core.StreamingOutput;
-
 import datawave.annotation.Required;
 import datawave.configuration.DatawaveEmbeddedProjectStageHolder;
 import datawave.configuration.spring.SpringBean;
@@ -105,6 +62,48 @@ import org.apache.log4j.Logger;
 import org.apache.oozie.client.OozieClient;
 import org.jboss.resteasy.annotations.GZIP;
 import org.jboss.resteasy.specimpl.MultivaluedMapImpl;
+
+import javax.annotation.Resource;
+import javax.annotation.security.DeclareRoles;
+import javax.annotation.security.RolesAllowed;
+import javax.ejb.EJBContext;
+import javax.ejb.LocalBean;
+import javax.ejb.Stateless;
+import javax.ejb.TransactionAttribute;
+import javax.ejb.TransactionAttributeType;
+import javax.ejb.TransactionManagement;
+import javax.ejb.TransactionManagementType;
+import javax.inject.Inject;
+import javax.servlet.http.HttpServletResponse;
+import javax.ws.rs.DELETE;
+import javax.ws.rs.DefaultValue;
+import javax.ws.rs.FormParam;
+import javax.ws.rs.GET;
+import javax.ws.rs.POST;
+import javax.ws.rs.PUT;
+import javax.ws.rs.PathParam;
+import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
+import javax.ws.rs.WebApplicationException;
+import javax.ws.rs.core.Context;
+import javax.ws.rs.core.MultivaluedMap;
+import javax.ws.rs.core.StreamingOutput;
+import java.io.IOException;
+import java.security.Principal;
+import java.text.MessageFormat;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Properties;
+import java.util.Queue;
+import java.util.Set;
+import java.util.UUID;
 
 @javax.ws.rs.Path("/MapReduce")
 @RolesAllowed({"AuthorizedUser", "AuthorizedQueryServer", "InternalUser", "Administrator"})
@@ -253,7 +252,7 @@ public class MapReduceBean {
             }
         }
         
-        String id = sid + "_" + UUID.randomUUID().toString();
+        String id = sid + "_" + UUID.randomUUID();
         OozieClient oozieClient = null;
         Properties oozieConf = null;
         
@@ -480,7 +479,7 @@ public class MapReduceBean {
             }
             if (!this.mapReduceConfiguration.getValidInputFormats().contains(ifClass)) {
                 IllegalArgumentException e = new IllegalArgumentException("Invalid input format class specified. Must use one of "
-                                + this.mapReduceConfiguration.getValidInputFormats().toString());
+                                + this.mapReduceConfiguration.getValidInputFormats());
                 QueryException qe = new QueryException(DatawaveErrorCode.INVALID_FORMAT, e);
                 log.error(qe);
                 response.addException(qe.getBottomQueryException());
@@ -554,7 +553,7 @@ public class MapReduceBean {
         MapReduceInfoResponseList list = mapReduceState.findById(jobId);
         List<String> jobIdsToKill = new ArrayList<>();
         // Should contain zero or one bulk result job
-        if (list.getResults().size() == 0) {
+        if (list.getResults().isEmpty()) {
             NotFoundQueryException qe = new NotFoundQueryException(DatawaveErrorCode.NO_MAPREDUCE_OBJECT_MATCH);
             response.addException(qe);
             throw new NotFoundException(qe, response);
@@ -657,7 +656,7 @@ public class MapReduceBean {
         // Find all potential running jobs
         MapReduceInfoResponseList list = mapReduceState.findById(jobId);
         // Should contain zero or one job
-        if (list.getResults().size() == 0) {
+        if (list.getResults().isEmpty()) {
             NotFoundQueryException qe = new NotFoundQueryException(DatawaveErrorCode.NO_MAPREDUCE_OBJECT_MATCH);
             response.addException(qe);
             throw new NotFoundException(qe, response);
@@ -696,7 +695,7 @@ public class MapReduceBean {
     @GZIP
     public MapReduceInfoResponseList list(@PathParam("jobId") String jobId) {
         MapReduceInfoResponseList response = mapReduceState.findById(jobId);
-        if (null == response || null == response.getResults() || response.getResults().size() == 0) {
+        if (null == response || null == response.getResults() || response.getResults().isEmpty()) {
             if (null == response)
                 response = new MapReduceInfoResponseList();
             NotFoundQueryException qe = new NotFoundQueryException(DatawaveErrorCode.NO_QUERY_OBJECT_MATCH);
@@ -780,7 +779,7 @@ public class MapReduceBean {
                         if (null != fiz)
                             fiz.close();
                     } catch (IOException e) {
-                        log.error("Error closing FSDataInputStream for file: " + resultFile.toString(), e);
+                        log.error("Error closing FSDataInputStream for file: " + resultFile, e);
                     }
                     try {
                         if (null != fs)
@@ -845,9 +844,7 @@ public class MapReduceBean {
                     resultFiles.add(currentFileStatus);
                 } else {
                     FileStatus[] dirList = fs.listStatus(currentFileStatus.getPath());
-                    for (FileStatus fileStatus : dirList) {
-                        fileQueue.add(fileStatus);
-                    }
+                    Collections.addAll(fileQueue, dirList);
                 }
             }
         } catch (IOException e) {
@@ -1015,7 +1012,7 @@ public class MapReduceBean {
             throw new UnauthorizedQueryException(DatawaveErrorCode.JOB_EXECUTION_UNAUTHORIZED, "Principal must be DatawavePrincipal");
         }
         DatawavePrincipal datawavePrincipal = (DatawavePrincipal) principal;
-        if (requiredRoles != null && requiredRoles.size() > 0) {
+        if (requiredRoles != null && !requiredRoles.isEmpty()) {
             Set<String> usersRoles = new HashSet<>(datawavePrincipal.getPrimaryUser().getRoles());
             if (!usersRoles.containsAll(requiredRoles)) {
                 throw new UnauthorizedQueryException(DatawaveErrorCode.JOB_EXECUTION_UNAUTHORIZED, MessageFormat.format("Requires the following roles: {0}",
@@ -1024,7 +1021,7 @@ public class MapReduceBean {
         }
         
         if (null != queryParameters) {
-            if (requiredAuths != null && requiredAuths.size() > 0) {
+            if (requiredAuths != null && !requiredAuths.isEmpty()) {
                 String authsString = queryParameters.getFirst("auths");
                 List<String> authorizations = AuthorizationsUtil.splitAuths(authsString);
                 if (!authorizations.containsAll(requiredAuths)) {

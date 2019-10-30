@@ -5,6 +5,7 @@ import datawave.ingest.table.config.MetadataTableConfigHelper;
 import datawave.ingest.table.config.ShardTableConfigHelper;
 import datawave.ingest.table.config.TableConfigHelper;
 import datawave.query.tables.ShardQueryLogic;
+import datawave.util.TableName;
 import org.apache.accumulo.core.client.AccumuloException;
 import org.apache.accumulo.core.client.AccumuloSecurityException;
 import org.apache.accumulo.core.client.BatchWriterConfig;
@@ -17,13 +18,11 @@ import datawave.accumulo.inmemory.InMemoryInstance;
 import org.apache.accumulo.core.client.security.tokens.PasswordToken;
 import org.apache.accumulo.core.conf.Property;
 import org.apache.accumulo.core.data.Key;
-import org.apache.accumulo.core.data.Mutation;
 import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.iterators.IteratorUtil;
 import org.apache.accumulo.core.security.Authorizations;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.Text;
-import org.apache.hadoop.mapreduce.RecordWriter;
 import org.apache.log4j.Logger;
 
 import java.util.Iterator;
@@ -36,11 +35,11 @@ import java.util.concurrent.TimeUnit;
 public final class QueryTestTableHelper {
     
     public static final String METADATA_TABLE_NAME = "metadata";
-    public static final String DATE_INDEX_TABLE_NAME = "dateIndex";
-    public static final String LOAD_DATES_METADATA_TABLE_NAME = "LoadDates";
-    public static final String SHARD_TABLE_NAME = "shard";
-    public static final String SHARD_INDEX_TABLE_NAME = "shardIndex";
-    public static final String SHARD_RINDEX_TABLE_NAME = "shardReverseIndex";
+    public static final String DATE_INDEX_TABLE_NAME = TableName.DATE_INDEX;
+    public static final String LOAD_DATES_METADATA_TABLE_NAME = TableName.LOAD_DATES;
+    public static final String SHARD_TABLE_NAME = TableName.SHARD;
+    public static final String SHARD_INDEX_TABLE_NAME = TableName.SHARD_INDEX;
+    public static final String SHARD_RINDEX_TABLE_NAME = TableName.SHARD_RINDEX;
     public static final String SHARD_DICT_INDEX_NAME = "shardTermDictionary";
     public static final String MODEL_TABLE_NAME = "DatawaveMetadata";
     
@@ -59,9 +58,14 @@ public final class QueryTestTableHelper {
     
     public QueryTestTableHelper(String instanceName, Logger log) throws AccumuloSecurityException, AccumuloException, TableExistsException,
                     TableNotFoundException {
+        this(instanceName, log, RebuildingScannerTestHelper.TEARDOWN.EVERY_OTHER, RebuildingScannerTestHelper.INTERRUPT.EVERY_OTHER);
+    }
+    
+    public QueryTestTableHelper(String instanceName, Logger log, RebuildingScannerTestHelper.TEARDOWN teardown, RebuildingScannerTestHelper.INTERRUPT interrupt)
+                    throws AccumuloSecurityException, AccumuloException, TableExistsException, TableNotFoundException {
         // create mock instance and connector
         InMemoryInstance i = new InMemoryInstance(instanceName);
-        this.connector = i.getConnector("root", new PasswordToken(""));
+        this.connector = RebuildingScannerTestHelper.getConnector(i, "root", new PasswordToken(""), teardown, interrupt);
         this.log = log;
         
         createTables();
@@ -161,6 +165,6 @@ public final class QueryTestTableHelper {
         logic.setReverseIndexTableName(SHARD_RINDEX_TABLE_NAME);
         logic.setModelTableName(MODEL_TABLE_NAME);
         logic.setMaxResults(5000);
-        logic.setMaxRowsToScan(25000);
+        logic.setMaxWork(25000);
     }
 }

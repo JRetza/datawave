@@ -13,6 +13,7 @@ import org.apache.accumulo.core.client.BatchScanner;
 import org.apache.accumulo.core.client.Connector;
 import org.apache.accumulo.core.client.TableNotFoundException;
 import org.apache.accumulo.core.client.ZooKeeperInstance;
+import org.apache.accumulo.core.client.security.tokens.PasswordToken;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Range;
 import org.apache.accumulo.core.data.Value;
@@ -33,7 +34,7 @@ public class AccumuloCounterSource extends CounterSource {
     
     protected String username;
     
-    protected Iterator<Entry<Key,Value>> iterator = null;;
+    protected Iterator<Entry<Key,Value>> iterator = null;
     
     protected Key topKey = null;
     
@@ -42,7 +43,7 @@ public class AccumuloCounterSource extends CounterSource {
     public AccumuloCounterSource(String instanceStr, String zookeepers, String username, String password, String table) throws AccumuloException,
                     AccumuloSecurityException {
         ZooKeeperInstance instance = new ZooKeeperInstance(instanceStr, zookeepers);
-        connector = instance.getConnector(username, password.getBytes());
+        connector = instance.getConnector(username, new PasswordToken(password));
         queryTable = table;
         this.username = username;
     }
@@ -119,7 +120,7 @@ public class AccumuloCounterSource extends CounterSource {
         source.addRange(range);
         source.addColumnFaily(columnFamily);
         CounterDump dumper = new CounterDump(source);
-        System.out.println(dumper.toString());
+        System.out.println(dumper);
     }
     
 }

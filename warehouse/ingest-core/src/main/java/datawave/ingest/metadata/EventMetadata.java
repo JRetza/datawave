@@ -7,7 +7,6 @@ import datawave.ingest.data.RawRecordContainer;
 import datawave.ingest.data.Type;
 import datawave.ingest.data.config.NormalizedContentInterface;
 import datawave.ingest.data.config.ingest.AbstractContentIngestHelper;
-import datawave.ingest.data.config.ingest.CompositeIngest;
 import datawave.ingest.data.config.ingest.CompositeIngestHelperInterface;
 import datawave.ingest.data.config.ingest.IndexOnlyIngestHelperInterface;
 import datawave.ingest.data.config.ingest.IngestHelperInterface;
@@ -20,12 +19,14 @@ import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.Value;
 import org.apache.accumulo.core.iterators.user.SummingCombiner;
 import org.apache.hadoop.io.Text;
-import org.apache.log4j.Logger;
-import org.springframework.util.StringUtils;
+import org.slf4j.Logger;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
+
+import static org.slf4j.LoggerFactory.getLogger;
 
 /**
  * Object that summarizes the events that are processed by the EventMapper. This object extracts metadata about the events (i.e. fields, indexed fields, field
@@ -86,12 +87,11 @@ import java.util.Set;
 public class EventMetadata implements RawRecordMetadata {
     
     private MetadataWithMostRecentDate compositeFieldsInfo = new MetadataWithMostRecentDate(ColumnFamilyConstants.COLF_CI);
-    private MetadataWithMostRecentDate compositeFixedLengthFieldsInfo = new MetadataWithMostRecentDate(ColumnFamilyConstants.COLF_CIFL);
-    private MetadataWithMostRecentDate compositeTransitionDateInfo = new MetadataWithMostRecentDate(ColumnFamilyConstants.COLF_CITD);
+    private MetadataWithMostRecentDate compositeSeparators = new MetadataWithMostRecentDate(ColumnFamilyConstants.COLF_CISEP);
     private MetadataWithMostRecentDate dataTypeFieldsInfo = new MetadataWithMostRecentDate(ColumnFamilyConstants.COLF_T);
     private MetadataWithMostRecentDate normalizedFieldsInfo = new MetadataWithMostRecentDate(ColumnFamilyConstants.COLF_N);
     
-    private static final Logger log = Logger.getLogger(EventMetadata.class);
+    private static final Logger log = getLogger(EventMetadata.class);
     private final Text metadataTableName;
     private final Text loadDatesTableName;
     // stores field name, data type, and most recent event date
@@ -176,35 +176,25 @@ public class EventMetadata implements RawRecordMetadata {
             
             if (helper.isNormalizedField(fieldName)) {
                 shouldWriteDataType = true;
-                log.debug(fieldName + " is normalized");
+                log.debug("{} is normalized", fieldName);
                 updateMetadata(this.normalizedFieldsInfo, helper, event, fields, fieldName);
             }
             
             if (helper.isDataTypeField(fieldName) || shouldWriteDataType) {
-                log.debug(fieldName + " has a data type");
+                log.debug("{} has a data type", fieldName);
                 // write a dataType entry
                 // using either the assigned dataType or the default dataType
                 update(helper.getDataTypes(fieldName), event, fields.get(fieldName), "", 0, null, this.dataTypeFieldsInfo, null);
             } else {
-                log.debug(fieldName + " apparently has no data type");
+                log.debug("{} apparently has no data type", fieldName);
             }
             
             if (helper.isCompositeField(fieldName)) {
-                String[] componentFields = helper.getCompositeFieldDefinitions().get(fieldName);
-                this.compositeFieldsInfo.createOrUpdate(fieldName, event.getDataType().outputName(), StringUtils.arrayToCommaDelimitedString(componentFields),
+                Collection<String> componentFields = helper.getCompositeFieldDefinitions().get(fieldName);
+                this.compositeFieldsInfo.createOrUpdate(fieldName, event.getDataType().outputName(), String.join(",", componentFields), event.getDate());
+                this.compositeSeparators.createOrUpdate(fieldName, event.getDataType().outputName(), helper.getCompositeFieldSeparators().get(fieldName),
                                 event.getDate());
-                
-                // Add fixed fields and transition date if applicable
-                if (helper.isFixedLengthCompositeField(fieldName))
-                    this.compositeFixedLengthFieldsInfo.createOrUpdate(fieldName, event.getDataType().outputName(), "", event.getDate());
-                
-                if (helper.isTransitionedCompositeField(fieldName)) {
-                    String transitionDateStr = CompositeIngest.CompositeFieldNormalizer.formatter.format(helper.getCompositeFieldTransitionDate(fieldName)
-                                    .getTime());
-                    this.compositeTransitionDateInfo.createOrUpdate(fieldName, event.getDataType().outputName(), transitionDateStr, event.getDate());
-                }
             }
-            
         }
         
         addTokenizedContent(helper, event, fields, countDelta, loadDateStr);
@@ -217,16 +207,16 @@ public class EventMetadata implements RawRecordMetadata {
     protected void addEventField(IngestHelperInterface helper, RawRecordContainer event, String fieldName, long countDelta, boolean frequency) {
         // if only indexing this field, then do not add to event and frequency maps
         if (helper.isIndexOnlyField(fieldName)) {
-            log.debug(fieldName + " is indexonly, not adding to event");
+            log.debug("{} is indexonly, not adding to event", fieldName);
             return;
         }
         
         if (helper.isCompositeField(fieldName) && !helper.isOverloadedCompositeField(fieldName)) {
-            log.debug(fieldName + " is a composite, not adding to event");
+            log.debug("{} is a composite, not adding to event", fieldName);
             return;
         }
         
-        log.debug("createOrUpdate for " + fieldName);
+        log.debug("createOrUpdate for {}", fieldName);
         eventFieldsInfo.createOrUpdate(fieldName, event.getDataType().outputName(), MetadataWithMostRecentDate.IGNORED_NORMALIZER_CLASS, event.getDate());
         
         if (frequency) {
@@ -320,17 +310,26 @@ public class EventMetadata implements RawRecordMetadata {
         
         // The ContentIndexingColumnBasedHandler uses helpers with this interface
         if (helper instanceof AbstractContentIngestHelper) {
-            String tokenDesignator = ((AbstractContentIngestHelper) helper).getTokenFieldNameDesignator();
+            String tokenDesignator = Objects.toString(((AbstractContentIngestHelper) helper).getTokenFieldNameDesignator(), "");
             AbstractContentIngestHelper h = (AbstractContentIngestHelper) helper;
             for (String field : fields.keySet()) {
-                if (h.isContentIndexField(field)) {
-                    updateForIndexedField(helper, event, fields, countDelta, loadDate, tokenDesignator, field);
-                    termFrequencyFieldsInfo.createOrUpdate(field, event.getDataType().outputName(), MetadataWithMostRecentDate.IGNORED_NORMALIZER_CLASS,
-                                    event.getDate());
+                String fieldTokenDesignator = h.isContentIndexField(field) ? tokenDesignator : "";
+                if (h.isContentIndexField(field) || h.isIndexListField(field)) {
+                    updateForIndexedField(helper, event, fields, countDelta, loadDate, fieldTokenDesignator, field);
+                    termFrequencyFieldsInfo.createOrUpdate(field + fieldTokenDesignator, event.getDataType().outputName(),
+                                    MetadataWithMostRecentDate.IGNORED_NORMALIZER_CLASS, event.getDate());
                 }
                 
-                if (h.isReverseContentIndexField(field)) {
-                    updateForReverseIndexedField(helper, event, fields, countDelta, loadDate, tokenDesignator, field);
+                if (h.isReverseContentIndexField(field) || h.isReverseIndexListField(field)) {
+                    updateForReverseIndexedField(helper, event, fields, countDelta, loadDate, fieldTokenDesignator, field);
+                }
+                
+                // Add T record only for and indexed list field. Tokenized fields are always text and is not normalized in the handler
+                if (h.isIndexListField(field)) {
+                    log.debug("{} as a data type", field);
+                    // write a dataType entry
+                    // using either the assigned dataType or the default dataType
+                    update(helper.getDataTypes(field), event, fields.get(field), "", 0, null, this.dataTypeFieldsInfo, null);
                 }
             }
         }
@@ -376,8 +375,7 @@ public class EventMetadata implements RawRecordMetadata {
         addIndexedFieldToMetadata(bulkData, normalizedFieldsInfo);
         
         addIndexedFieldToMetadata(bulkData, this.compositeFieldsInfo);
-        addIndexedFieldToMetadata(bulkData, this.compositeFixedLengthFieldsInfo);
-        addIndexedFieldToMetadata(bulkData, this.compositeTransitionDateInfo);
+        addIndexedFieldToMetadata(bulkData, this.compositeSeparators);
         
         addToLoadDates(bulkData, this.indexedFieldsLoadDateCounts);
         addToLoadDates(bulkData, this.reverseIndexedFieldsLoadDateCounts);

@@ -10,12 +10,13 @@ import datawave.query.attributes.Document;
 import datawave.query.attributes.PreNormalizedAttribute;
 import datawave.query.attributes.TypeAttribute;
 import datawave.query.composite.CompositeMetadata;
+import datawave.webservice.edgedictionary.RemoteEdgeDictionary;
 import datawave.query.function.deserializer.KryoDocumentDeserializer;
 import datawave.query.language.parser.ParseException;
 import datawave.query.tables.ShardQueryLogic;
+import datawave.query.tables.edge.DefaultEdgeEventQueryLogic;
 import datawave.query.util.CompositeTestingIngest;
 import datawave.query.util.TypeMetadata;
-import datawave.webservice.edgedictionary.TestDatawaveEdgeDictionaryImpl;
 import datawave.webservice.query.QueryImpl;
 import datawave.webservice.query.configuration.GenericQueryConfiguration;
 import org.apache.accumulo.core.client.Connector;
@@ -49,7 +50,6 @@ import java.util.Set;
 import java.util.TimeZone;
 import java.util.UUID;
 
-import static datawave.query.QueryTestTableHelper.METADATA_TABLE_NAME;
 import static datawave.query.QueryTestTableHelper.SHARD_INDEX_TABLE_NAME;
 import static datawave.query.QueryTestTableHelper.SHARD_TABLE_NAME;
 import static datawave.query.tables.edge.BaseEdgeQueryTest.MODEL_TABLE_NAME;
@@ -127,7 +127,8 @@ public abstract class ValueToAttributesTest {
                         .create(JavaArchive.class)
                         .addPackages(true, "org.apache.deltaspike", "io.astefanutti.metrics.cdi", "datawave.query", "org.jboss.logging",
                                         "datawave.webservice.query.result.event")
-                        .addClass(TestDatawaveEdgeDictionaryImpl.class)
+                        .deleteClass(DefaultEdgeEventQueryLogic.class)
+                        .deleteClass(RemoteEdgeDictionary.class)
                         .deleteClass(datawave.query.metrics.QueryMetricQueryLogic.class)
                         .deleteClass(datawave.query.metrics.ShardTableQueryMetricHandler.class)
                         .addAsManifestResource(
@@ -170,7 +171,7 @@ public abstract class ValueToAttributesTest {
         logic.setupQuery(config);
         
         String plannedScript = logic.getQueryPlanner().getPlannedScript();
-        Assert.assertTrue("Composite was not substituted into query:" + plannedScript, plannedScript.contains("MAKE_COLOR"));
+        Assert.assertTrue("CompositeTerm was not substituted into query:" + plannedScript, plannedScript.contains("MAKE_COLOR"));
         
         HashSet<String> expectedSet = new HashSet<>(expected);
         HashSet<String> resultSet;
@@ -250,7 +251,7 @@ public abstract class ValueToAttributesTest {
         
         TypeMetadata typeMetadata = new TypeMetadata(
                         "MAKE:[beep:datawave.data.type.LcNoDiacriticsType];MAKE_COLOR:[beep:datawave.data.type.NoOpType];START_DATE:[beep:datawave.data.type.DateType];TYPE_NOEVAL:[beep:datawave.data.type.LcNoDiacriticsType];IP_ADDR:[beep:datawave.data.type.IpAddressType];WHEELS:[beep:datawave.data.type.LcNoDiacriticsType,datawave.data.type.NumberType];COLOR:[beep:datawave.data.type.LcNoDiacriticsType];COLOR_WHEELS:[beep:datawave.data.type.NoOpType];TYPE:[beep:datawave.data.type.LcNoDiacriticsType]");
-        MarkingFunctions markingFunctions = new MarkingFunctions.NoOp();
+        MarkingFunctions markingFunctions = new MarkingFunctions.Default();
         ValueToAttributes valueToAttributes = new ValueToAttributes(compositeMetadata, typeMetadata, null, markingFunctions);
     }
 }

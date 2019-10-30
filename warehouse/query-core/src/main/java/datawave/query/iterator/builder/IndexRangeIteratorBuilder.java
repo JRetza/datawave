@@ -8,6 +8,7 @@ import datawave.query.iterator.logic.IndexIteratorBridge;
 import datawave.query.jexl.LiteralRange;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.PartialKey;
+import org.apache.accumulo.core.data.Range;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.Text;
 import org.apache.log4j.Logger;
@@ -16,6 +17,7 @@ import java.io.IOException;
 import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.util.SortedSet;
 
 /**
  * A convenience class that aggregates a field, range, source iterator, normalizer mappings, index only fields, data type filter and key transformer when
@@ -26,6 +28,7 @@ public class IndexRangeIteratorBuilder extends IvaratorBuilder implements Iterat
     private static Logger log = Logger.getLogger(IndexRangeIteratorBuilder.class);
     
     protected LiteralRange range;
+    protected SortedSet<Range> subRanges;
     
     public LiteralRange getRange() {
         return range;
@@ -37,6 +40,14 @@ public class IndexRangeIteratorBuilder extends IvaratorBuilder implements Iterat
         StringBuilder builder = new StringBuilder();
         builder.append(range.getLower()).append("-").append(range.getUpper());
         setValue(builder.toString());
+    }
+    
+    public SortedSet<Range> getSubRanges() {
+        return subRanges;
+    }
+    
+    public void setSubRanges(SortedSet<Range> subRanges) {
+        this.subRanges = subRanges;
     }
     
     @SuppressWarnings("unchecked")
@@ -70,13 +81,14 @@ public class IndexRangeIteratorBuilder extends IvaratorBuilder implements Iterat
                                 .withMaxRangeSplit(maxRangeSplit).withMaxOpenFiles(ivaratorMaxOpenFiles).withFileSystem(hdfsFileSystem)
                                 .withUniqueDir(new Path(hdfsCacheURI)).withQueryLock(queryLock).allowDirResuse(true)
                                 .withReturnKeyType(PartialKey.ROW_COLFAM_COLQUAL_COLVIS_TIME).withSortedUUIDs(sortedUIDs)
-                                .withCompositePredicateFilters(createCompositePredicateFilters(range.getFieldName())).build();
+                                .withCompositeMetadata(compositeMetadata).withCompositeSeekThreshold(compositeSeekThreshold).withTypeMetadata(typeMetadata)
+                                .withSubRanges(subRanges).withIteratorEnv(env).build();
                 
                 if (collectTimingDetails) {
                     rangeIterator.setCollectTimingDetails(true);
                     rangeIterator.setQuerySpanCollector(this.querySpanCollector);
                 }
-                rangeIterator.init(source, null, null);
+                rangeIterator.init(source, null, env);
                 log.debug("Created a DatawaveFieldIndexRangeIteratorJexl: " + rangeIterator);
                 
                 boolean canBuildDocument = this.fieldsToAggregate == null ? false : this.fieldsToAggregate.contains(field);
@@ -84,7 +96,7 @@ public class IndexRangeIteratorBuilder extends IvaratorBuilder implements Iterat
                     canBuildDocument = true;
                 }
                 
-                // Add an interator to aggregate documents. This is needed for index only fields.
+                // Add an iterator to aggregate documents. This is needed for index only fields.
                 DocumentAggregatingIterator aggregatingIterator = new DocumentAggregatingIterator(canBuildDocument, this.typeMetadata, keyTform);
                 aggregatingIterator.init(rangeIterator, null, null);
                 

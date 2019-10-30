@@ -1,7 +1,7 @@
 package datawave.query.tables.facets;
 
 import datawave.query.QueryParameters;
-import java.util.Iterator;
+
 import java.util.List;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -150,10 +150,7 @@ public class FacetedQueryLogic extends IndexQueryLogic {
         
         filterList.add(filter);
         
-        Iterator<Entry<Key,Value>> returnIter = new MergedReadAhead<>(facetedConfig, iterator, new FacetedFunction(deserializer, serializer, functionList),
-                        filterList);
-        
-        iterator = returnIter;
+        iterator = new MergedReadAhead<>(facetedConfig, iterator, new FacetedFunction(deserializer, serializer, functionList), filterList);
         
     }
     
@@ -176,14 +173,13 @@ public class FacetedQueryLogic extends IndexQueryLogic {
     
     @Override
     public Set<String> getOptionalQueryParameters() {
-        Set<String> params = new TreeSet<>();
-        params.add(FacetedConfiguration.MINIMUM_COUNT);
-        params.add(FacetedConfiguration.FACETED_SEARCH_TYPE);
-        params.add(FacetedConfiguration.FACETED_FIELDS);
-        params.add(FacetedConfiguration.MAXIMUM_GROUP_COUNT);
-        params.add(FacetedConfiguration.STREAMING_ENABLED);
-        params.add(QueryOptions.LIMIT_FIELDS);
-        return params;
+        Set<String> optionalParams = new TreeSet<>(super.getOptionalQueryParameters());
+        optionalParams.add(FacetedConfiguration.MINIMUM_COUNT);
+        optionalParams.add(FacetedConfiguration.FACETED_SEARCH_TYPE);
+        optionalParams.add(FacetedConfiguration.FACETED_FIELDS);
+        optionalParams.add(FacetedConfiguration.MAXIMUM_GROUP_COUNT);
+        optionalParams.add(FacetedConfiguration.STREAMING_ENABLED);
+        return optionalParams;
     }
     
     /**

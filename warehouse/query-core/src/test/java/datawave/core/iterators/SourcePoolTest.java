@@ -15,7 +15,12 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Test the source pool logic
@@ -162,14 +167,14 @@ public class SourcePoolTest {
                     Assert.assertNotEquals(factory.source, source);
                 } catch (Throwable e) {
                     synchronized (failed) {
-                        e.printStackTrace();
+                        log.error(e);
                         failed.add(e);
                     }
                 }
             });
             thread.setUncaughtExceptionHandler((t, e) -> {
                 synchronized (failed) {
-                    e.printStackTrace();
+                    log.error(e);
                     failed.add(e);
                 }
             });
@@ -204,14 +209,14 @@ public class SourcePoolTest {
                     pool.checkIn(threadSource);
                 } catch (Throwable e) {
                     synchronized (failed) {
-                        e.printStackTrace();
+                        log.error(e);
                         failed.add(e);
                     }
                 }
             });
             thread.setUncaughtExceptionHandler((t, e) -> {
                 synchronized (failed) {
-                    e.printStackTrace();
+                    log.error(e);
                     failed.add(e);
                 }
             });
@@ -266,14 +271,14 @@ public class SourcePoolTest {
                 Assert.assertNotEquals(factory.source, source);
             } catch (Throwable e) {
                 synchronized (failed) {
-                    e.printStackTrace();
+                    log.error(e);
                     failed.add(e);
                 }
             }
         });
         thread.setUncaughtExceptionHandler((t, e) -> {
             synchronized (failed) {
-                e.printStackTrace();
+                log.error(e);
                 failed.add(e);
             }
         });

@@ -26,6 +26,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.Serializable;
+import java.time.format.DateTimeParseException;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
@@ -130,8 +131,8 @@ public class Document extends AttributeBag<Document> implements Serializable {
         // extract the sharded time from the dockey if possible
         try {
             this.shardTimestamp = DateHelper.parseWithGMT(docKey.getRow().toString()).getTime();
-        } catch (IllegalArgumentException e) {
-            log.warn("Unable to parse document key row as a shard id of the form yyyyMMdd...: " + docKey.getRow().toString(), e);
+        } catch (DateTimeParseException e) {
+            log.warn("Unable to parse document key row as a shard id of the form yyyyMMdd...: " + docKey.getRow(), e);
             // leave the shardTimestamp empty
             this.shardTimestamp = Long.MAX_VALUE;
         }
@@ -731,7 +732,7 @@ public class Document extends AttributeBag<Document> implements Serializable {
                 }
             } else {
                 // Nothing already in the context, just add the result from the visit() as a functional set
-                if (visitObject.size() > 0) {
+                if (!visitObject.isEmpty()) {
                     Set<ValueTuple> newSet = new FunctionalSet<>();
                     newSet.addAll(visitObject);
                     // Add the final set

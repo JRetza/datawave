@@ -55,8 +55,8 @@ public class SafeFileOutputCommitterTest {
     private static final Path outDir = new Path(System.getProperty("test.build.data", System.getProperty("java.io.tmpdir")),
                     SafeFileOutputCommitterTest.class.getName());
     
-    private final static String SUB_DIR = "SUB_DIR";
-    private final static Path OUT_SUB_DIR = new Path(outDir, SUB_DIR);
+    private static final String SUB_DIR = "SUB_DIR";
+    private static final Path OUT_SUB_DIR = new Path(outDir, SUB_DIR);
     
     private static final Log LOG = LogFactory.getLog(SafeFileOutputCommitterTest.class);
     
@@ -183,7 +183,7 @@ public class SafeFileOutputCommitterTest {
         } else {
             assertFalse("Version 2 commits to output dir " + jtd2, jtd2.exists());
             if (commitVersion == 1 || !patched) {
-                assertTrue("Version 2  recovery moves to output dir from " + jtd, jtd.list().length == 0);
+                assertEquals("Version 2  recovery moves to output dir from " + jtd, 0, jtd.list().length);
             }
         }
         
@@ -365,9 +365,6 @@ public class SafeFileOutputCommitterTest {
     }
     
     public static class FakeFileSystem extends RawLocalFileSystem {
-        public FakeFileSystem() {
-            super();
-        }
         
         public URI getUri() {
             return URI.create("faildel:///");

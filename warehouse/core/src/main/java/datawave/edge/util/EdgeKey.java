@@ -12,7 +12,6 @@ import org.apache.accumulo.core.security.ColumnVisibility;
 import org.apache.commons.lang.StringEscapeUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.hadoop.io.Text;
-import org.apache.hadoop.io.WritableComparator;
 import org.apache.log4j.Logger;
 
 /**
@@ -776,7 +775,7 @@ public class EdgeKey {
                 for (int i = 0; i < bLen; i++) {
                     if (pLen >= parts.length) {
                         throw new RuntimeException("Exceeded number of possible number of parts (" + parts.length + ")." + "  bytes as String: "
-                                        + new Text(bytes).toString() + " parts: " + Arrays.toString(parts));
+                                        + new Text(bytes) + " parts: " + Arrays.toString(parts));
                     }
                     if (bytes[i] == COL_SEPARATOR_BYTE) {
                         parts[pLen++] = Text.decode(bytes, start, i - start);
@@ -924,7 +923,7 @@ public class EdgeKey {
                 return encode(EDGE_VERSION.DATE_PROTOBUF);
             } else {
                 // EDGE_FORMAT.UNKNOWN
-                throw new IllegalStateException("Can't encode unknown edge key format." + this.toString());
+                throw new IllegalStateException("Can't encode unknown edge key format." + this);
             }
         }
         
@@ -937,7 +936,7 @@ public class EdgeKey {
             return encode(EDGE_VERSION.PROTOBUF);
         } else {
             // EDGE_FORMAT.UNKNOWN
-            throw new IllegalStateException("Can't encode unknown edge key format." + this.toString());
+            throw new IllegalStateException("Can't encode unknown edge key format." + this);
         }
     }
     
@@ -948,7 +947,7 @@ public class EdgeKey {
             return encode(EDGE_VERSION.BASE_ATTRIBUTE2);
         } else {
             // EDGE_FORMAT.UNKNOWN
-            throw new IllegalStateException("Can't encode unknown edge key format." + this.toString());
+            throw new IllegalStateException("Can't encode unknown edge key format." + this);
         }
     }
     
@@ -959,7 +958,7 @@ public class EdgeKey {
             return encode(EDGE_VERSION.BASE);
         } else {
             // EDGE_FORMAT.UNKNOWN
-            throw new IllegalStateException("Can't encode unknown edge key format." + this.toString());
+            throw new IllegalStateException("Can't encode unknown edge key format." + this);
         }
     }
     
@@ -973,9 +972,7 @@ public class EdgeKey {
         Text colf = new Text(EDGE_METADATA_COLUMN);
         Text colq = new Text(this.getAttribute1());
         
-        Key mKey = new Key(row, colf, colq, new Text(""), this.getTimestamp());
-        
-        return mKey;
+        return new Key(row, colf, colq, new Text(""), this.getTimestamp());
     }
     
     /**

@@ -11,8 +11,8 @@ import java.util.Collections;
 import java.util.Set;
 
 /**
- * NOTE: The JexlFunctionArgumentDescriptorFactory is implemented by GeoFunctionsDescriptor. This is kept as a separate class to reduce accumulo dependencies on
- * other jars.
+ * NOTE: The JexlFunctionArgumentDescriptorFactory is implemented by QueryFunctionsDescriptor. This is kept as a separate class to reduce accumulo dependencies
+ * on other jars.
  * 
  **/
 @JexlFunctions(descriptorFactory = "datawave.query.jexl.functions.QueryFunctionsDescriptor")
@@ -29,7 +29,7 @@ public class QueryFunctions {
         Object value = ValueTuple.getStringValue(valueTuple);
         Object fieldName = ValueTuple.getFieldName(valueTuple);
         if (value != null && fieldName != null) {
-            return fieldName.toString() + ":" + value.toString();
+            return fieldName + ":" + value;
         } else {
             return "";
         }

@@ -11,9 +11,6 @@ import datawave.query.config.ShardQueryConfiguration;
 import datawave.query.jexl.ArithmeticJexlEngines;
 import datawave.query.jexl.JexlASTHelper;
 import datawave.query.jexl.JexlNodeFactory;
-import datawave.query.jexl.functions.FunctionJexlNodeVisitor;
-import datawave.query.jexl.functions.QueryFunctions;
-import datawave.query.jexl.functions.JexlFunctionArgumentDescriptorFactory;
 import datawave.query.jexl.functions.arguments.JexlArgumentDescriptor;
 import datawave.query.jexl.visitors.EventDataQueryExpressionVisitor;
 import datawave.query.util.DateIndexHelper;
@@ -54,15 +51,13 @@ public class QueryFunctionsDescriptor implements JexlFunctionArgumentDescriptorF
                 JexlNode leNode = JexlNodeFactory.buildNode(new ASTLENode(ParserTreeConstants.JJTLENODE), args.get(0), args.get(2).image);
                 
                 // now link em up
-                JexlNode andNode = JexlNodeFactory.createAndNode(Arrays.asList(new JexlNode[] {geNode, leNode}));
                 
-                returnNode = andNode;
+                returnNode = JexlNodeFactory.createAndNode(Arrays.asList(geNode, leNode));
             } else if (name.equals("length")) {
                 // create a regex node with the appropriate number of matching characters
-                JexlNode reNode = JexlNodeFactory.buildNode(new ASTERNode(ParserTreeConstants.JJTERNODE), args.get(0),
-                                ".{" + args.get(1).image + ',' + args.get(2).image + '}');
                 
-                returnNode = reNode;
+                returnNode = JexlNodeFactory.buildNode(new ASTERNode(ParserTreeConstants.JJTERNODE), args.get(0), ".{" + args.get(1).image + ','
+                                + args.get(2).image + '}');
             }
             return returnNode;
         }
@@ -98,6 +93,11 @@ public class QueryFunctionsDescriptor implements JexlFunctionArgumentDescriptorF
         
         @Override
         public boolean regexArguments() {
+            return true;
+        }
+        
+        @Override
+        public boolean allowIvaratorFiltering() {
             return true;
         }
     }

@@ -42,8 +42,6 @@ import java.net.URI;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Hashtable;
-import java.util.List;
-import java.util.Map.Entry;
 import java.util.UUID;
 
 import static org.easymock.EasyMock.anyObject;
@@ -117,7 +115,7 @@ public class QueryMetricsEnrichmentInterceptorTest {
     @Before
     public void setup() {
         System.setProperty(NpeUtils.NPE_OU_PROPERTY, "iamnotaperson");
-        System.setProperty("metadatahelper.default.auths", "A,B,C,D");
+        System.setProperty("dw.metadatahelper.all.auths", "A,B,C,D");
         
         // noinspection unchecked
         requestHeaders = PowerMock.createStrictMock(MultivaluedMap.class);
@@ -183,7 +181,7 @@ public class QueryMetricsEnrichmentInterceptorTest {
         // Simulate the initial context
         TestInitialContextFactory.INITIAL_CONTEXT = this.initialContext;
         
-        final Capture<QueryCall> qcCapture = new Capture<>();
+        final Capture<QueryCall> qcCapture = Capture.newInstance();
         
         // Set expectations for the postProcess
         expect(responseContext.getHeaders()).andReturn(writeHeaders);
@@ -240,7 +238,7 @@ public class QueryMetricsEnrichmentInterceptorTest {
         // Simulate the initial context
         TestInitialContextFactory.INITIAL_CONTEXT = this.initialContext;
         
-        final Capture<QueryCall> qcCapture = new Capture<>();
+        final Capture<QueryCall> qcCapture = Capture.newInstance();
         
         // Set expectations for the postProcess
         expect(responseContext.getHeaders()).andReturn(writeHeaders);
@@ -300,7 +298,7 @@ public class QueryMetricsEnrichmentInterceptorTest {
         // Simulate the initial context
         TestInitialContextFactory.INITIAL_CONTEXT = this.initialContext;
         
-        final Capture<QueryCall> qcCapture = new Capture<>();
+        final Capture<QueryCall> qcCapture = Capture.newInstance();
         
         // Set expectations for the postProcess
         expect(responseContext.getHeaders()).andReturn(writeHeaders);
@@ -365,7 +363,7 @@ public class QueryMetricsEnrichmentInterceptorTest {
         // Simulate the initial context
         TestInitialContextFactory.INITIAL_CONTEXT = this.initialContext;
         
-        final Capture<QueryCall> qcCapture = new Capture<>();
+        final Capture<QueryCall> qcCapture = Capture.newInstance();
         
         // Set expectations for the postProcess
         expect(responseContext.getHeaders()).andReturn(writeHeaders);

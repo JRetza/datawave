@@ -15,13 +15,13 @@ public class Unique extends JexlQueryFunction {
     }
     
     /**
-     * query options are pairs of key/value. Ensure that the number of args is even
+     * query options contain a list of fields. Cannot be the empty list.
      * 
      * @throws IllegalArgumentException
      */
     @Override
     public void validate() throws IllegalArgumentException {
-        if (this.parameterList.size() == 0) {
+        if (this.parameterList.isEmpty()) {
             BadRequestQueryException qe = new BadRequestQueryException(DatawaveErrorCode.INVALID_FUNCTION_ARGUMENTS, MessageFormat.format("{0}", this.name));
             throw new IllegalArgumentException(qe);
         }

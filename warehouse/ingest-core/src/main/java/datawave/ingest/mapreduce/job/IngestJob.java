@@ -37,6 +37,7 @@ import org.apache.accumulo.core.Constants;
 import org.apache.accumulo.core.client.AccumuloException;
 import org.apache.accumulo.core.client.AccumuloSecurityException;
 import org.apache.accumulo.core.client.ClientConfiguration;
+import org.apache.accumulo.core.client.IteratorSetting;
 import org.apache.accumulo.core.client.NamespaceExistsException;
 import org.apache.accumulo.core.client.TableExistsException;
 import org.apache.accumulo.core.client.TableNotFoundException;
@@ -48,7 +49,6 @@ import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.KeyValue;
 import org.apache.accumulo.core.data.Mutation;
 import org.apache.accumulo.core.data.Value;
-import org.apache.accumulo.core.data.thrift.IterInfo;
 import org.apache.accumulo.core.iterators.Combiner;
 import org.apache.accumulo.core.iterators.IteratorUtil.IteratorScope;
 import org.apache.accumulo.core.security.ColumnVisibility;
@@ -87,6 +87,7 @@ import org.apache.hadoop.util.ToolRunner;
 import org.apache.log4j.ConsoleAppender;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
+import org.apache.log4j.PatternLayout;
 
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
@@ -139,7 +140,7 @@ public class IngestJob implements Tool {
     
     protected boolean eventProcessingError = false;
     protected Logger log = Logger.getLogger("datawave.ingest");
-    private ConsoleAppender ca = new ConsoleAppender();
+    private ConsoleAppender ca = new ConsoleAppender(new PatternLayout("%p [%c{1}] %m%n"));
     
     protected ArrayList<String[]> confOverrides = new ArrayList<>();
     protected int reduceTasks = 0;
@@ -277,12 +278,12 @@ public class IngestJob implements Tool {
         
         TypeRegistry.getInstance(conf);
         
-        log.error(conf.toString());
-        log.error(String.format("getStrings('%s') = %s", TypeRegistry.INGEST_DATA_TYPES, conf.get(TypeRegistry.INGEST_DATA_TYPES)));
-        log.error(String.format("getStrings('data.name') = %s", conf.get("data.name")));
+        log.info(conf.toString());
+        log.info(String.format("getStrings('%s') = %s", TypeRegistry.INGEST_DATA_TYPES, conf.get(TypeRegistry.INGEST_DATA_TYPES)));
+        log.info(String.format("getStrings('data.name') = %s", conf.get("data.name")));
         int index = 0;
         for (String name : TypeRegistry.getTypeNames()) {
-            log.error(String.format("name[%d] = '%s'", index++, name));
+            log.info(String.format("name[%d] = '%s'", index++, name));
         }
         
         if (TypeRegistry.getTypes().isEmpty()) {
@@ -319,7 +320,7 @@ public class IngestJob implements Tool {
         // get the qualified work directory path
         Path unqualifiedWorkPath = Path.getPathWithoutSchemeAndAuthority(new Path(workDir));
         conf.set("ingest.work.dir.unqualified", unqualifiedWorkPath.toString());
-        Path workDirPath = getFileSystem(conf, (writeDirectlyToDest ? destHdfs : srcHdfs)).makeQualified(unqualifiedWorkPath);
+        Path workDirPath = new Path(new Path(writeDirectlyToDest ? destHdfs : srcHdfs), unqualifiedWorkPath);
         conf.set("ingest.work.dir.qualified", workDirPath.toString());
         
         // Create the Job
@@ -521,9 +522,7 @@ public class IngestJob implements Tool {
         
         log.info("Replacing ${DATAWAVE_INGEST_HOME} with " + ingestHomeValue);
         
-        Configuration oldConfig = conf;
-        
-        return ConfigurationHelper.interpolate(oldConfig, "\\$\\{DATAWAVE_INGEST_HOME\\}", ingestHomeValue);
+        return ConfigurationHelper.interpolate(conf, "\\$\\{DATAWAVE_INGEST_HOME\\}", ingestHomeValue);
         
     }
     
@@ -1258,7 +1257,7 @@ public class IngestJob implements Tool {
         // aggregator is a scan aggregator.
         IteratorScope scope = IteratorScope.scan;
         for (String table : tableNames) {
-            ArrayList<IterInfo> iters = new ArrayList<>();
+            ArrayList<IteratorSetting> iters = new ArrayList<>();
             HashMap<String,Map<String,String>> allOptions = new HashMap<>();
             
             // Go through all of the configuration properties of this table and figure out which
@@ -1280,7 +1279,7 @@ public class IngestJob implements Tool {
                         String sa[] = entry.getValue().split(",");
                         int prio = Integer.parseInt(sa[0]);
                         String className = sa[1];
-                        iters.add(new IterInfo(prio, className, suffixSplit[1]));
+                        iters.add(new IteratorSetting(prio, suffixSplit[1], className));
                     } else if (suffixSplit.length == 4 && suffixSplit[2].equals("opt")) {
                         String iterName = suffixSplit[1];
                         String optName = suffixSplit[3];
@@ -1301,36 +1300,36 @@ public class IngestJob implements Tool {
             
             // Now go through all of the iterators, and for those that are aggregators, store
             // the options in the Hadoop config so that we can parse it back out in the reducer.
-            for (IterInfo iter : iters) {
-                Class<?> klass = Class.forName(iter.getClassName());
+            for (IteratorSetting iter : iters) {
+                Class<?> klass = Class.forName(iter.getIteratorClass());
                 if (PropogatingIterator.class.isAssignableFrom(klass)) {
-                    Map<String,String> options = allOptions.get(iter.getIterName());
+                    Map<String,String> options = allOptions.get(iter.getName());
                     if (null != options) {
                         for (Entry<String,String> option : options.entrySet()) {
                             String key = String.format("aggregator.%s.%d.%s", table, iter.getPriority(), option.getKey());
                             conf.set(key, option.getValue());
                         }
                     } else
-                        log.trace("Skipping iterator class " + iter.getClassName() + " since it doesn't have options.");
+                        log.trace("Skipping iterator class " + iter.getIteratorClass() + " since it doesn't have options.");
                     
                 } else {
-                    log.trace("Skipping iterator class " + iter.getClassName() + " since it doesn't appear to be a combiner.");
+                    log.trace("Skipping iterator class " + iter.getIteratorClass() + " since it doesn't appear to be a combiner.");
                 }
             }
             
-            for (IterInfo iter : iters) {
-                Class<?> klass = Class.forName(iter.getClassName());
+            for (IteratorSetting iter : iters) {
+                Class<?> klass = Class.forName(iter.getIteratorClass());
                 if (Combiner.class.isAssignableFrom(klass)) {
-                    Map<String,String> options = allOptions.get(iter.getIterName());
+                    Map<String,String> options = allOptions.get(iter.getName());
                     if (null != options) {
                         String key = String.format("combiner.%s.%d.iterClazz", table, iter.getPriority());
-                        conf.set(key, iter.getClassName());
+                        conf.set(key, iter.getIteratorClass());
                         for (Entry<String,String> option : options.entrySet()) {
                             key = String.format("combiner.%s.%d.%s", table, iter.getPriority(), option.getKey());
                             conf.set(key, option.getValue());
                         }
                     } else
-                        log.trace("Skipping iterator class " + iter.getClassName() + " since it doesn't have options.");
+                        log.trace("Skipping iterator class " + iter.getIteratorClass() + " since it doesn't have options.");
                     
                 }
             }
@@ -1511,21 +1510,24 @@ public class IngestJob implements Tool {
         // not carry block size or replication across. This is especially important because by default the
         // MapReduce jobs produce output with the replication set to 1 and we definitely don't want to preserve
         // that when copying across clusters.
-        DistCpOptions options = new DistCpOptions(Collections.singletonList(srcPath), destPath);
-        options.setLogPath(logPath);
-        options.setMapBandwidth(distCpBandwidth);
-        options.setMaxMaps(distCpMaxMaps);
-        options.setCopyStrategy(distCpStrategy);
-        options.setSyncFolder(true);
-        options.preserve(DistCpOptions.FileAttribute.USER);
-        options.preserve(DistCpOptions.FileAttribute.GROUP);
-        options.preserve(DistCpOptions.FileAttribute.PERMISSION);
-        options.preserve(DistCpOptions.FileAttribute.BLOCKSIZE);
-        options.preserve(DistCpOptions.FileAttribute.CHECKSUMTYPE);
-        options.setBlocking(true);
+        //@formatter:off
+        DistCpOptions options = new DistCpOptions.Builder(Collections.singletonList(srcPath), destPath)
+            .withLogPath(logPath)
+            .withMapBandwidth(distCpBandwidth)
+            .maxMaps(distCpMaxMaps)
+            .withCopyStrategy(distCpStrategy)
+            .withSyncFolder(true)
+            .preserve(DistCpOptions.FileAttribute.USER)
+            .preserve(DistCpOptions.FileAttribute.GROUP)
+            .preserve(DistCpOptions.FileAttribute.PERMISSION)
+            .preserve(DistCpOptions.FileAttribute.BLOCKSIZE)
+            .preserve(DistCpOptions.FileAttribute.CHECKSUMTYPE)
+            .withBlocking(true)
+            .build();
+        //@formatter:on
         
         DistCp cp = new DistCp(distcpConfig, options);
-        log.info("Starting distcp from " + srcPath + " to " + destPath + " with configuration: " + options.toString());
+        log.info("Starting distcp from " + srcPath + " to " + destPath + " with configuration: " + options);
         try {
             cp.execute();
         } catch (Exception e) {
@@ -1590,7 +1592,7 @@ public class IngestJob implements Tool {
             if (!fs.exists(statsDir))
                 fs.mkdirs(statsDir);
             Path dst = new Path(statsDir, src.getName());
-            log.info("Copying file " + src.toString() + " to " + dst.toString());
+            log.info("Copying file " + src + " to " + dst);
             fs.copyFromLocalFile(false, true, src, dst);
             // If this worked, then remove the local file
             rawFS.delete(src, false);

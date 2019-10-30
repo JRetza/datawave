@@ -24,10 +24,8 @@ import datawave.webservice.common.logging.ThreadConfigurableLogger;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.log4j.Logger;
 
-import java.text.ParseException;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -139,10 +137,6 @@ public abstract class BaseIngestHelper extends AbstractIngestHelper implements C
     private Multimap<Matcher,datawave.data.type.Type<?>> typeCompiledPatternMap = null;
     protected Set<String> indexOnlyFields = Sets.newHashSet();
     
-    protected Set<String> compositeFields = Sets.newHashSet();
-    protected Set<String> fixedLengthFields = Sets.newHashSet();
-    protected Map<String,Date> fieldTransitionDateMap = Maps.newHashMap();
-    
     protected Set<String> indexedFields = Sets.newHashSet();
     protected Map<String,Pattern> indexedPatterns = Maps.newHashMap();
     protected Set<String> unindexedFields = Sets.newHashSet();
@@ -198,7 +192,11 @@ public abstract class BaseIngestHelper extends AbstractIngestHelper implements C
         this.typeCompiledPatternMap = null;
         
         this.getVirtualIngest().setup(config);
+        
+        if (this.compositeIngest == null)
+            this.compositeIngest = new CompositeFieldIngestHelper(this.getType());
         this.getCompositeIngest().setup(config);
+        
         IngestConfiguration ingestConfiguration = IngestConfigurationFactory.getIngestConfiguration();
         markingsHelper = ingestConfiguration.getMarkingsHelper(config, getType());
         
@@ -418,46 +416,6 @@ public abstract class BaseIngestHelper extends AbstractIngestHelper implements C
                 }
             }
         }
-        
-        String compositeFieldList = config.get(this.getType().typeName() + CompositeIngest.COMPOSITE_FIELD_NAMES);
-        if (null != compositeFieldList) {
-            for (String s : compositeFieldList.split(",")) {
-                
-                String fieldName = s.trim();
-                
-                if (!fieldName.isEmpty()) {
-                    
-                    this.compositeFields.add(fieldName);
-                }
-            }
-        }
-        
-        String fixedLengthFields = config.get(this.getType().typeName() + CompositeIngest.COMPOSITE_FIELDS_FIXED_LENGTH);
-        if (null != fixedLengthFields) {
-            for (String s : fixedLengthFields.split(",")) {
-                
-                String fieldName = s.trim();
-                
-                if (!fieldName.isEmpty()) {
-                    
-                    this.fixedLengthFields.add(fieldName);
-                }
-            }
-        }
-        
-        String transitionedCompositeFields = config.get(this.getType().typeName() + CompositeIngest.COMPOSITE_FIELDS_TRANSITION_DATES);
-        if (null != transitionedCompositeFields) {
-            for (String s : transitionedCompositeFields.split(",")) {
-                try {
-                    if (!s.isEmpty()) {
-                        String[] kv = s.split("\\|");
-                        this.fieldTransitionDateMap.put(kv[0], CompositeIngest.CompositeFieldNormalizer.formatter.parse(kv[1]));
-                    }
-                } catch (ParseException e) {
-                    log.trace("Unable to parse composite field transition date", e);
-                }
-            }
-        }
     }
     
     private void moveToPatternMap(Set<String> in, Map<String,Pattern> out) {
@@ -477,9 +435,6 @@ public abstract class BaseIngestHelper extends AbstractIngestHelper implements C
      * @return
      */
     public CompositeIngest getCompositeIngest() {
-        if (this.compositeIngest == null) {
-            this.compositeIngest = new CompositeFieldIngestHelper(this.getType());
-        }
         return this.compositeIngest;
     }
     
@@ -497,10 +452,6 @@ public abstract class BaseIngestHelper extends AbstractIngestHelper implements C
     
     public Set<String> getIndexOnlyFields() {
         return indexOnlyFields;
-    }
-    
-    public Set<String> getCompositeFields() {
-        return compositeFields;
     }
     
     public Set<String> getIndexedFields() {
@@ -544,7 +495,7 @@ public abstract class BaseIngestHelper extends AbstractIngestHelper implements C
         
         String fieldName = property.substring(dataType.typeName().length() + 1, property.length() - propertyPattern.length());
         
-        if (0 == fieldName.length()) {
+        if (fieldName.isEmpty()) {
             fieldName = null;
         } else {
             fieldName = fieldName.toUpperCase();
@@ -567,7 +518,7 @@ public abstract class BaseIngestHelper extends AbstractIngestHelper implements C
         
         String fieldName = property.substring(dataType.typeName().length() + 1, property.length() - propertyPattern.length());
         
-        if (0 == fieldName.length()) {
+        if (fieldName.isEmpty()) {
             fieldName = null;
         } else {
             fieldName = fieldName.toUpperCase();
@@ -607,30 +558,7 @@ public abstract class BaseIngestHelper extends AbstractIngestHelper implements C
     
     @Override
     public boolean isCompositeField(String fieldName) {
-        return this.compositeFields.contains(fieldName);
-    }
-    
-    @Override
-    public boolean isFixedLengthCompositeField(String fieldName) {
-        return fixedLengthFields != null && fixedLengthFields.contains(fieldName);
-    }
-    
-    @Override
-    public boolean isTransitionedCompositeField(String fieldName) {
-        return fieldTransitionDateMap != null && fieldTransitionDateMap.containsKey(fieldName);
-    }
-    
-    @Override
-    public Date getCompositeFieldTransitionDate(String fieldName) {
-        Date transitionDate = null;
-        if (isTransitionedCompositeField(fieldName))
-            transitionDate = fieldTransitionDateMap.get(fieldName);
-        return transitionDate;
-    }
-    
-    @Override
-    public void addCompositeField(String fieldName) {
-        this.compositeFields.add(fieldName);
+        return this.compositeIngest.isCompositeField(fieldName);
     }
     
     @Override
@@ -668,7 +596,9 @@ public abstract class BaseIngestHelper extends AbstractIngestHelper implements C
             for (Matcher patternMatcher : typeCompiledPatternMap.keySet()) {
                 
                 if (patternMatcher.reset(fieldName).matches()) {
-                    types.addAll(typeCompiledPatternMap.get(patternMatcher));
+                    Collection<datawave.data.type.Type<?>> patternTypes = typeCompiledPatternMap.get(patternMatcher);
+                    types.addAll(patternTypes);
+                    typeFieldMap.putAll(fieldName, patternTypes);
                 }
             }
         }
@@ -732,6 +662,22 @@ public abstract class BaseIngestHelper extends AbstractIngestHelper implements C
             }
         }
         return list;
+    }
+    
+    public HashSet<NormalizedContentInterface> normalizeFieldValue(String fieldName, NormalizedContentInterface normalizedContent, boolean indexOnly) {
+        Collection<datawave.data.type.Type<?>> dataTypes = getDataTypes(fieldName);
+        HashSet<NormalizedContentInterface> values = new HashSet<>(dataTypes.size());
+        for (datawave.data.type.Type<?> dataType : dataTypes) {
+            NormalizedContentInterface value = normalizeFieldValue(normalizedContent, dataType);
+            if (indexOnly) {
+                value.setEventFieldValue(null);
+            }
+            values.add(value);
+            if (log.isDebugEnabled()) {
+                log.debug("added normalized field " + value + " to values set.");
+            }
+        }
+        return values;
     }
     
     protected NormalizedContentInterface normalizeFieldValue(NormalizedContentInterface normalizedContent, datawave.data.type.Type<?> datawaveType) {
@@ -1094,7 +1040,7 @@ public abstract class BaseIngestHelper extends AbstractIngestHelper implements C
         if (this.indexedFields == null) {
             retVal = false;
             log.error(this.getType().typeName() + ": index set has been set to null.");
-        } else if (this.indexedFields.size() == 0) {
+        } else if (this.indexedFields.isEmpty()) {
             if (log.isDebugEnabled()) {
                 log.debug(this.getType().typeName() + ": no fields have been set to index.");
             }
@@ -1105,7 +1051,7 @@ public abstract class BaseIngestHelper extends AbstractIngestHelper implements C
         if (this.reverseIndexedFields == null) {
             retVal = false;
             log.error(this.getType().typeName() + ": reverse index set has been set to null.");
-        } else if (this.reverseIndexedFields.size() == 0) {
+        } else if (this.reverseIndexedFields.isEmpty()) {
             if (log.isDebugEnabled()) {
                 log.debug(this.getType().typeName() + ": no fields have been set to reverse index.");
             }
@@ -1116,12 +1062,17 @@ public abstract class BaseIngestHelper extends AbstractIngestHelper implements C
     }
     
     @Override
-    public Map<String,String[]> getCompositeFieldDefinitions() {
+    public Multimap<String,String> getCompositeFieldDefinitions() {
         return getCompositeIngest().getCompositeFieldDefinitions();
     }
     
     @Override
-    public void setCompositeFieldDefinitions(Map<String,String[]> compositeFieldDefinitions) {
+    public Map<String,String> getCompositeFieldSeparators() {
+        return getCompositeIngest().getCompositeFieldSeparators();
+    }
+    
+    @Override
+    public void setCompositeFieldDefinitions(Multimap<String,String> compositeFieldDefinitions) {
         getCompositeIngest().setCompositeFieldDefinitions(compositeFieldDefinitions);
     }
     

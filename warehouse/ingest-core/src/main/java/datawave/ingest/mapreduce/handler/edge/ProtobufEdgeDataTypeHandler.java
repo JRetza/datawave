@@ -10,7 +10,6 @@ import com.google.common.hash.HashFunction;
 import com.google.common.hash.Hashing;
 import com.google.common.hash.PrimitiveSink;
 import datawave.data.normalizer.DateNormalizer;
-import datawave.edge.protobuf.EdgeData.MetadataValue.Metadata;
 import datawave.edge.util.EdgeKey;
 import datawave.edge.util.EdgeKey.EDGE_FORMAT;
 import datawave.edge.util.EdgeKey.STATS_TYPE;
@@ -38,6 +37,8 @@ import datawave.ingest.metadata.RawRecordMetadata;
 import datawave.ingest.table.config.LoadDateTableConfigHelper;
 import datawave.ingest.time.Now;
 import datawave.marking.MarkingFunctions;
+import datawave.metadata.protobuf.EdgeMetadata.MetadataValue;
+import datawave.metadata.protobuf.EdgeMetadata.MetadataValue.Metadata;
 import datawave.util.StringUtils;
 import datawave.util.time.DateHelper;
 import org.apache.accumulo.core.data.Key;
@@ -230,7 +231,7 @@ public class ProtobufEdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements Exten
             
             log.info("Got config on first try!");
         } catch (Exception e) {
-            e.printStackTrace();
+            log.error("Problem getting config for ProtobufEdgeDataTypeHandler: {}", e);
             throw e;
         }
         
@@ -500,7 +501,7 @@ public class ProtobufEdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements Exten
         
         // Get the load date of the event from the fields map
         Collection<NormalizedContentInterface> loadDates = fields.get(EventMapper.LOAD_DATE_FIELDNAME);
-        if (loadDates.size() > 0) {
+        if (!loadDates.isEmpty()) {
             NormalizedContentInterface nci = loadDates.iterator().next();
             Date date = new Date(Long.parseLong(nci.getEventFieldValue()));
             loadDateStr = DateHelper.format(date);
@@ -861,9 +862,9 @@ public class ProtobufEdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements Exten
                     InterruptedException {
         for (Entry<Key,Set<Metadata>> entry : metadataRegistry.entrySet()) {
             Key metaKey = entry.getKey();
-            datawave.edge.protobuf.EdgeData.MetadataValue.Builder valueBuilder = datawave.edge.protobuf.EdgeData.MetadataValue.newBuilder();
+            MetadataValue.Builder valueBuilder = MetadataValue.newBuilder();
             valueBuilder.addAllMetadata(entry.getValue());
-            datawave.edge.protobuf.EdgeData.MetadataValue value = valueBuilder.build();
+            MetadataValue value = valueBuilder.build();
             
             // write out a metadataRegistry key
             BulkIngestKey bulk = new BulkIngestKey(new Text(tableName), metaKey);
@@ -885,7 +886,7 @@ public class ProtobufEdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements Exten
         if (value instanceof GroupedNormalizedContentInterface) {
             GroupedNormalizedContentInterface grouped = (GroupedNormalizedContentInterface) value;
             if (grouped.isGrouped() && grouped.getGroup() != null) {
-                if (grouped.getGroup().length() > 0 && grouped.getGroup().charAt(0) == '.') {
+                if (!grouped.getGroup().isEmpty() && grouped.getGroup().charAt(0) == '.') {
                     fieldName = fieldName + grouped.getGroup();
                 } else {
                     fieldName = fieldName + '.' + grouped.getGroup();
@@ -1054,9 +1055,8 @@ public class ProtobufEdgeDataTypeHandler<KEYIN,KEYOUT,VALUEOUT> implements Exten
                         .setAttribute3(edgeValue.getEdgeAttribute3()).setAttribute2(edgeValue.getEdgeAttribute2()).setColvis(visibility)
                         .setTimestamp(timestamp).setDateType(date_type);
         builder.setDeleted(edgeValue.isDeleting());
-        Key key = builder.build().encode();
         
-        return key;
+        return builder.build().encode();
     }
     
     protected Key createStatsKey(STATS_TYPE statsType, EdgeDataBundle edgeValue, VertexValue vertex, String value, Text visibility, EdgeKey.DATE_TYPE date_type) {

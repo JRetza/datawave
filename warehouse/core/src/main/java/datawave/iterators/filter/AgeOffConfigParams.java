@@ -48,4 +48,14 @@ public class AgeOffConfigParams {
      * A flag indicating that the ageoff parameters are from the merging of two or more config files. Some filter parsing need special handling for this case.
      */
     public static final String IS_MERGE = "ismerge";
+    
+    /**
+     * A flag that indicates that the table being aged off is an index table
+     */
+    public static final String IS_INDEX_TABLE = "isindextable";
+    
+    /**
+     * Exclude schema components from age-off
+     */
+    public static final String EXCLUDE_DATA = "excludeData";
 }

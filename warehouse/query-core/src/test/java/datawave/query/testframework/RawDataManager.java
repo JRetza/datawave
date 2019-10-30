@@ -15,9 +15,26 @@ import java.util.Set;
  */
 public interface RawDataManager {
     
+    /**
+     * Provide the {@link BaseShardIdRange} values as the default shard date range.
+     */
+    ShardIdValues SHARD_ID_VALUES = new ShardIdValues(BaseShardIdRange.getShardDates());
+    
     // and/or logical strings for use by unit tests
     String AND_OP = " and ";
     String OR_OP = " or ";
+    String NOT_OP = " not ";
+    String JEXL_AND_OP = " && ";
+    String JEXL_OR_OP = " || ";
+    // relationship operators
+    String GTE_OP = " >= ";
+    String LTE_OP = " <= ";
+    String GT_OP = " > ";
+    String LT_OP = " < ";
+    String EQ_OP = " == ";
+    String NE_OP = " != ";
+    String RE_OP = " =~ ";
+    String RN_OP = " !~ ";
     
     // string and char value for multivalue fields
     String MULTIVALUE_SEP = ";";

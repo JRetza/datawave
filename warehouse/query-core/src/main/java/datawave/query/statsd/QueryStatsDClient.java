@@ -10,8 +10,7 @@ import com.timgroup.statsd.StatsDClientException;
 import java.nio.charset.Charset;
 import java.text.NumberFormat;
 import java.util.Locale;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
+
 import org.apache.log4j.Logger;
 
 import java.util.Map;
@@ -32,6 +31,7 @@ public class QueryStatsDClient extends ConvenienceMethodProvidingStatsDClient {
     // thread safe caches
     private final AtomicInteger nextCalls = new AtomicInteger(0);
     private final AtomicInteger seekCalls = new AtomicInteger(0);
+    private final AtomicInteger yieldCalls = new AtomicInteger(0);
     private final AtomicInteger sources = new AtomicInteger(0);
     private final Multimap<String,Long> timings;
     private final String prefix;
@@ -97,6 +97,11 @@ public class QueryStatsDClient extends ConvenienceMethodProvidingStatsDClient {
                 count("seek_calls", value);
                 flushed = true;
             }
+            value = yieldCalls.getAndSet(0);
+            if (value > 0) {
+                count("yield_calls", value);
+                flushed = true;
+            }
             value = sources.getAndSet(0);
             if (value > 0) {
                 count("sources", value);
@@ -140,6 +145,11 @@ public class QueryStatsDClient extends ConvenienceMethodProvidingStatsDClient {
         flushAsNeeded();
     }
     
+    public void yield() {
+        yieldCalls.incrementAndGet();
+        flushAsNeeded();
+    }
+    
     public void addSource() {
         sources.incrementAndGet();
         flushAsNeeded();
@@ -151,7 +161,7 @@ public class QueryStatsDClient extends ConvenienceMethodProvidingStatsDClient {
     }
     
     public int getSize() {
-        return nextCalls.get() + seekCalls.get() + sources.get() + timings.size();
+        return nextCalls.get() + seekCalls.get() + yieldCalls.get() + sources.get() + timings.size();
     }
     
     /**

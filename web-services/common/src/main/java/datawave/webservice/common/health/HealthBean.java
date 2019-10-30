@@ -41,11 +41,9 @@ import javax.xml.bind.annotation.XmlAccessType;
 import javax.xml.bind.annotation.XmlAccessorType;
 import javax.xml.bind.annotation.XmlElement;
 import javax.xml.bind.annotation.XmlRootElement;
-import java.io.IOException;
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 @PermitAll
@@ -198,7 +196,7 @@ public class HealthBean {
             ObjectName objectName = new ObjectName("jboss.as:management-root=server");
             mBeanServer.invoke(objectName, "shutdown", new Object[] {false, 0}, new String[] {boolean.class.getName(), int.class.getName()});
         } catch (MalformedObjectNameException | ReflectionException | InstanceNotFoundException | MBeanException e) {
-            e.printStackTrace();
+            LOG.warn("Error shutting down: {}", e);
         }
         
         return Response.ok().entity(response).build();

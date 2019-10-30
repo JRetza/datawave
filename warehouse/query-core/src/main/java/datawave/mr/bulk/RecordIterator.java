@@ -5,14 +5,12 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -35,7 +33,6 @@ import org.apache.accumulo.core.data.thrift.IterInfo;
 import org.apache.accumulo.core.file.FileOperations;
 import org.apache.accumulo.core.file.FileSKVIterator;
 import org.apache.accumulo.core.file.blockfile.BlockFileReader;
-import org.apache.accumulo.core.file.blockfile.impl.CachableBlockFile;
 import org.apache.accumulo.core.file.blockfile.impl.CachableBlockFile.Reader;
 import org.apache.accumulo.core.file.rfile.RFile;
 import org.apache.accumulo.core.file.rfile.RFileOperations;
@@ -133,7 +130,7 @@ public class RecordIterator extends RangeSplit implements SortedKeyValueIterator
         
         public Thread newThread(Runnable r) {
             Thread thread = dtf.newThread(r);
-            thread.setName("Datawave BatchScanner Session " + threadIdentifier.toString() + " -" + threadNum++);
+            thread.setName("Datawave BatchScanner Session " + threadIdentifier + " -" + threadNum++);
             thread.setDaemon(true);
             return thread;
         }
@@ -247,6 +244,9 @@ public class RecordIterator extends RangeSplit implements SortedKeyValueIterator
         
         try {
             fileRangeSplits = buildRangeSplits(fileSplit);
+            if (log.isTraceEnabled()) {
+                log.trace("Iterator over the following files: " + fileRangeSplits);
+            }
             
             initialize(conf, true);
             
@@ -385,7 +385,7 @@ public class RecordIterator extends RangeSplit implements SortedKeyValueIterator
             ColumnVisibility cv = new ColumnVisibility(acuTableConf.get(Property.TABLE_DEFAULT_SCANTIME_VISIBILITY));
             defaultSecurityLabel = cv.getExpression();
             
-            VisibilityFilter visFilter = new VisibilityFilter(topIter, auths, defaultSecurityLabel);
+            SortedKeyValueIterator<Key,Value> visFilter = VisibilityFilter.wrap(topIter, auths, defaultSecurityLabel);
             
             return IteratorUtil.loadIterators(IteratorScope.scan, visFilter, null, acuTableConf, serverSideIteratorList, serverSideIteratorOptions, iterEnv,
                             false);
@@ -479,7 +479,7 @@ public class RecordIterator extends RangeSplit implements SortedKeyValueIterator
                 
                 long length = fs.getFileStatus(path).getLen();
                 
-                closeable.setBlockFile(new Reader(closeable.getInputStream(), length, conf, null, null, acuTableConf));
+                closeable.setBlockFile(new Reader(path.getName(), closeable.getInputStream(), length, conf, null, null, acuTableConf));
                 
                 fileIterator = new RFile.Reader(closeable.getReader());
                 
@@ -662,14 +662,13 @@ public class RecordIterator extends RangeSplit implements SortedKeyValueIterator
         
         try {
             if (lastSeenKey != null) {
-                Range newRange = new Range(lastSeenKey, false, currentRange.getEndKey(), currentRange.isEndKeyInclusive());
-                currentRange = newRange;
+                currentRange = new Range(lastSeenKey, false, currentRange.getEndKey(), currentRange.isEndKeyInclusive());
             }
         } catch (Exception e) {
             log.error(e);
         }
         
-        globalIter.seek(currentRange, Collections.<ByteSequence> emptyList(), false);
+        globalIter.seek(currentRange, Collections.emptyList(), false);
     }
     
     /**
@@ -704,7 +703,7 @@ public class RecordIterator extends RangeSplit implements SortedKeyValueIterator
                 // us back into the previous range.
                 lastSeenKey = null;
                 
-                globalIter.seek(currentRange, Collections.<ByteSequence> emptyList(), false);
+                globalIter.seek(currentRange, Collections.emptyList(), false);
             }
             
         }

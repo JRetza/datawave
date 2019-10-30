@@ -1,12 +1,14 @@
 package datawave.query.jexl.visitors;
 
-import com.google.common.base.Predicate;
 import datawave.data.type.LcNoDiacriticsType;
 import datawave.data.type.NumberType;
+import datawave.data.type.Type;
 import datawave.query.attributes.AttributeFactory;
 import datawave.query.config.ShardQueryConfiguration;
 import datawave.query.jexl.JexlASTHelper;
+import datawave.query.jexl.LiteralRange;
 import datawave.query.jexl.visitors.EventDataQueryExpressionVisitor.ExpressionFilter;
+import datawave.query.predicate.PeekingPredicate;
 import datawave.query.util.MockDateIndexHelper;
 import datawave.query.util.MockMetadataHelper;
 import datawave.query.util.TypeMetadata;
@@ -21,13 +23,18 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.Assert.*;
+import static java.lang.Boolean.TRUE;
+import static java.lang.Boolean.FALSE;
+
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.fail;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertEquals;
 
 public class EventDataQueryExpressionVisitorTest {
     
@@ -58,13 +65,28 @@ public class EventDataQueryExpressionVisitorTest {
     public void testExtractNormalizedAttributes() {
         final Key metadata = new Key("shard", DATATYPE + "\0" + UID, "", new ColumnVisibility("U"), -1);
         
-        String[][] testData = { {"FOO", "ABcd"}, {"abcd"}, {"FOO", "1234"}, {"1234"}, {"BAZ", "ABcd"}, {"ABcd"}, {"BAZ", "1234"}, {"+dE1.234"},
-                {"BAR", "ABcd"}, {"abcd", "ABcd"}, {"BAR", "1234"}, {"1234", "+dE1.234"}};
+        // @formatter:off
+        String[][] testData = {
+                {"FOO", "ABcd"},
+                {"abcd"},
+                {"FOO", "1234"},
+                {"1234"},
+                {"BAZ", "ABcd"},
+                {"ABcd"},
+                {"BAZ", "1234"},
+                {"+dE1.234"},
+                {"BAR", "ABcd"},
+                {"abcd", "ABcd"},
+                {"BAR", "1234"},
+                {"1234", "+dE1.234"}
+        };
+        // @formatter:on
         
         for (int i = 0; i < testData.length; i += 2) {
             String[] input = testData[i];
             String[] expected = testData[i + 1];
-            Set<String> output = EventDataQueryExpressionVisitor.extractNormalizedAttributes(attrFactory, input[0], input[1], metadata);
+            Set<Type> types = EventDataQueryExpressionVisitor.extractTypes(attrFactory, input[0], input[1], metadata);
+            Set<String> output = EventDataQueryExpressionVisitor.extractNormalizedValues(types);
             Set<String> missing = new TreeSet<>();
             for (String s : expected) {
                 if (!output.remove(s)) {
@@ -74,16 +96,72 @@ public class EventDataQueryExpressionVisitorTest {
             
             StringBuilder b = new StringBuilder();
             if (!output.isEmpty()) {
-                b.append(" Unexpected entries found: " + output.toString());
+                b.append(" Unexpected entries found: " + output);
             }
             if (!missing.isEmpty()) {
-                b.append(" Expected entries that were not found: " + output.toString());
+                b.append(" Expected entries that were not found: " + output);
             }
             
             if (b.length() > 0) {
-                fail("Output did not match expected output for '" + input[0] + ":" + input[1] + "';" + b.toString());
+                fail("Output did not match expected output for '" + input[0] + ":" + input[1] + "';" + b);
             }
         }
+    }
+    
+    /**
+     * Create a circumstance where the sole type available for BAZ fails to normalize the field pattern so that the comparison must be done against the NoOpType
+     */
+    @Test
+    public void testBothNormalizedAndNonNormalized() {
+        ExpressionFilter f = new ExpressionFilter(attrFactory, "BAZ");
+        f.addFieldPattern("1|2|3");
+        
+        Key k1 = createKey("BAZ", "1");
+        
+        assertTrue(f.apply(k1));
+    }
+    
+    @Test
+    public void testNormalizedValuesMatching() {
+        ExpressionFilter f = new ExpressionFilter(attrFactory, "FOO");
+        f.addFieldValue("BAR");
+        f.addFieldPattern("BA[YZ]");
+        f.addFieldRange(new LiteralRange("Y", true, "Z", true, "FOO", LiteralRange.NodeOperand.OR));
+        f.addFieldRange(new LiteralRange("R", false, "S", false, "FOO", LiteralRange.NodeOperand.OR));
+        
+        Key k1 = createKey("FOO", "BaR");
+        Key k2 = createKey("FOO", "baz");
+        Key k3 = createKey("FOO", "baY");
+        
+        Key k4 = createKey("FOO", "y");
+        Key k5 = createKey("FOO", "Y");
+        Key k6 = createKey("FOO", "yap");
+        Key k7 = createKey("FOO", "YAP");
+        Key k8 = createKey("FOO", "z");
+        Key k9 = createKey("FOO", "Z");
+        
+        Key k10 = createKey("FOO", "r");
+        Key k11 = createKey("FOO", "R");
+        Key k12 = createKey("FOO", "rat");
+        Key k13 = createKey("FOO", "RAT");
+        Key k14 = createKey("FOO", "s");
+        Key k15 = createKey("FOO", "S");
+        
+        assertTrue(f.apply(k1));
+        assertTrue(f.apply(k2));
+        assertTrue(f.apply(k3));
+        assertTrue(f.apply(k4));
+        assertTrue(f.apply(k5));
+        assertTrue(f.apply(k6));
+        assertTrue(f.apply(k7));
+        assertTrue(f.apply(k8));
+        assertTrue(f.apply(k9));
+        assertFalse(f.apply(k10));
+        assertFalse(f.apply(k11));
+        assertTrue(f.apply(k12));
+        assertTrue(f.apply(k13));
+        assertFalse(f.apply(k14));
+        assertFalse(f.apply(k15));
     }
     
     @Test
@@ -396,7 +474,7 @@ public class EventDataQueryExpressionVisitorTest {
         ASTJexlScript script = JexlASTHelper.parseJexlQuery(originalQuery);
         final Map<String,ExpressionFilter> filter = EventDataQueryExpressionVisitor.getExpressionFilters(script, attrFactory);
         
-        printJexlScript(script);
+        // printJexlScript(script);
         
         Key p1 = createKey("BAZ", "4");
         Key p2 = createKey("BAZ", "6");
@@ -422,7 +500,7 @@ public class EventDataQueryExpressionVisitorTest {
         ASTJexlScript script = JexlASTHelper.parseJexlQuery(originalQuery);
         final Map<String,ExpressionFilter> filter = EventDataQueryExpressionVisitor.getExpressionFilters(script, attrFactory);
         
-        printJexlScript(script);
+        // printJexlScript(script);
         
         Key p1 = createKey("FOO", "abc");
         Key p2 = createKey("FOO", "def");
@@ -444,6 +522,7 @@ public class EventDataQueryExpressionVisitorTest {
         assertNull(filter.get("BAR"));
     }
     
+    @Test
     @Ignore
     // TODO: will we ever be able to get this to work?
     public void testRangeFunction() throws Exception {
@@ -451,7 +530,7 @@ public class EventDataQueryExpressionVisitorTest {
         ASTJexlScript script = JexlASTHelper.parseJexlQuery(originalQuery);
         final Map<String,ExpressionFilter> filter = EventDataQueryExpressionVisitor.getExpressionFilters(script, attrFactory);
         
-        printJexlScript(script);
+        // printJexlScript(script);
         
         Key p1 = createKey("BAZ", "6");
         Key p2 = createKey("BAZ", "1");
@@ -485,6 +564,7 @@ public class EventDataQueryExpressionVisitorTest {
         assertNull(filter.get("BAR"));
     }
     
+    @Test
     @Ignore
     // TODO: This may never happen - e.g: function expansion has happened by now.
     public void testAndSameGroupingOnQuery() throws Exception {
@@ -506,6 +586,7 @@ public class EventDataQueryExpressionVisitorTest {
         assertNull(filter.get("BAR"));
     }
     
+    @Test
     @Ignore
     // TODO: This may never happen - e.g: function expansion has happened by now.
     public void testAndSameGroupingOnBoth() throws Exception {
@@ -524,6 +605,155 @@ public class EventDataQueryExpressionVisitorTest {
         assertFalse(filter.get("FOO").apply(p3));
         
         assertNull(filter.get("BAR"));
+    }
+    
+    @Test
+    public void testGroupingFunction() throws Exception {
+        String originalQuery = "grouping:matchesInGroup(FOO, 'abc')";
+        ASTJexlScript script = JexlASTHelper.parseJexlQuery(originalQuery);
+        final Map<String,ExpressionFilter> filter = EventDataQueryExpressionVisitor.getExpressionFilters(script, attrFactory);
+        
+        // @formatter:off
+        Object[][] testData = {
+                { "FOO", createKey("FOO", "abc"), TRUE },
+                { "FOO", createKey("FOO", "abcdef"), FALSE },
+                { "FOO", createKey("FOO.1", "abc"), TRUE },
+                { "FOO", createKey("FOO.1", "abcdef"), FALSE },
+                { "FOO", createKey("BAR", "abc"), FALSE },
+                { "FOO", createKey("FOO", "def"), FALSE },
+                { "FOO", createKey("FOO.1", "def"), FALSE }
+        };
+        // @formatter:on
+        
+        assertNotNull(filter.get("FOO"));
+        assertNull(filter.get("BAR"));
+        assertFilters(testData, filter);
+    }
+    
+    @Test
+    public void testGroupingFunctionRegex() throws Exception {
+        String originalQuery = "grouping:matchesInGroup(FOO, 'abc.*')";
+        ASTJexlScript script = JexlASTHelper.parseJexlQuery(originalQuery);
+        final Map<String,ExpressionFilter> filter = EventDataQueryExpressionVisitor.getExpressionFilters(script, attrFactory);
+        
+        // @formatter:off
+        Object[][] testData = {
+                { "FOO", createKey("FOO", "abc"), TRUE },
+                { "FOO", createKey("FOO", "abcdef"), TRUE },
+                { "FOO", createKey("FOO.1", "abc"), TRUE },
+                { "FOO", createKey("FOO.1", "abcdef"), TRUE },
+                { "FOO", createKey("BAR", "abc"), FALSE },
+                { "FOO", createKey("FOO", "def"), FALSE },
+                { "FOO", createKey("FOO.1", "def"), FALSE }
+        };
+        // @formatter:on
+        
+        assertNotNull(filter.get("FOO"));
+        assertNull(filter.get("BAR"));
+        assertFilters(testData, filter);
+    }
+    
+    @Test
+    public void testGroupingFunctionMulti() throws Exception {
+        String originalQuery = "grouping:matchesInGroup(FOO, 'abc.*', BAR, 'def')";
+        ASTJexlScript script = JexlASTHelper.parseJexlQuery(originalQuery);
+        final Map<String,ExpressionFilter> filter = EventDataQueryExpressionVisitor.getExpressionFilters(script, attrFactory);
+        
+        // @formatter:off
+        Object[][] testData = {
+                { "FOO", createKey("FOO", "abc"), TRUE },
+                { "FOO", createKey("FOO", "abcdef"), TRUE },
+                { "FOO", createKey("FOO.1", "abc"), TRUE },
+                { "FOO", createKey("FOO.1", "abcdef"), TRUE },
+                { "BAR", createKey("BAR", "abc"), FALSE },
+                { "BAR", createKey("BAR", "abcdef"), FALSE },
+                { "BAR", createKey("BAR.1", "abc"), FALSE },
+                { "BAR", createKey("BAR.1", "abcdef"), FALSE },
+                { "BAR", createKey("BAR", "def"), TRUE },
+                { "BAR", createKey("BAR.1", "def"), TRUE },
+                { "FOO", createKey("FOO", "def"), FALSE } ,
+                { "FOO", createKey("FOO.1", "def"), FALSE }
+        };
+        // @formatter:on
+        
+        assertNotNull(filter.get("FOO"));
+        assertNotNull(filter.get("BAR"));
+        assertNull(filter.get("FOO.1"));
+        assertNull(filter.get("BAR.1"));
+        assertFilters(testData, filter);
+        
+    }
+    
+    @Test
+    public void testGroupingFunctionMultiZone() throws Exception {
+        String originalQuery = "grouping:matchesInGroupLeft(FOO, 'abc.*', BAR, 'def', 2)";
+        ASTJexlScript script = JexlASTHelper.parseJexlQuery(originalQuery);
+        final Map<String,ExpressionFilter> filter = EventDataQueryExpressionVisitor.getExpressionFilters(script, attrFactory);
+        
+        // @formatter:off
+        Object[][] testData = {
+                { "FOO", createKey("FOO", "abc"), TRUE },
+                { "FOO", createKey("FOO", "abcdef"), TRUE },
+                { "FOO", createKey("FOO.1", "abc"), TRUE },
+                { "FOO", createKey("FOO.1", "abcdef"), TRUE },
+                { "BAR", createKey("BAR", "abc"), FALSE },
+                { "BAR", createKey("BAR", "abcdef"), FALSE },
+                { "BAR", createKey("BAR.1", "abc"), FALSE },
+                { "BAR", createKey("BAR.1", "abcdef"), FALSE },
+                { "BAR", createKey("BAR", "def"), TRUE },
+                { "BAR", createKey("BAR.1", "def"), TRUE },
+                { "FOO", createKey("FOO", "def"), FALSE } ,
+                { "FOO", createKey("FOO.1", "def"), FALSE }
+        };
+        // @formatter:on
+        
+        assertNotNull(filter.get("FOO"));
+        assertNotNull(filter.get("BAR"));
+        assertNull(filter.get("FOO.1"));
+        assertNull(filter.get("BAR.1"));
+        assertFilters(testData, filter);
+        
+    }
+    
+    @Test
+    public void testGroupingFunctionAtomValuesMatch() throws Exception {
+        String originalQuery = "grouping:atomValuesMatch(FOO, BAR)";
+        ASTJexlScript script = JexlASTHelper.parseJexlQuery(originalQuery);
+        final Map<String,ExpressionFilter> filter = EventDataQueryExpressionVisitor.getExpressionFilters(script, attrFactory);
+        
+        // @formatter:off
+        Object[][] testData = {
+                { "FOO", createKey("FOO", "abc"), TRUE },
+                { "FOO", createKey("FOO", "abcdef"), TRUE },
+                { "FOO", createKey("FOO.1", "abc"), TRUE },
+                { "FOO", createKey("FOO.1", "abcdef"), TRUE },
+                { "BAR", createKey("BAR", "abc"), TRUE },
+                { "BAR", createKey("BAR", "abcdef"), TRUE },
+                { "BAR", createKey("BAR.1", "abc"), TRUE },
+                { "BAR", createKey("BAR.1", "abcdef"), TRUE },
+                { "BAR", createKey("BAR", "def"), TRUE },
+                { "BAR", createKey("BAR.1", "def"), TRUE },
+                { "FOO", createKey("FOO", "def"), TRUE } ,
+                { "FOO", createKey("FOO.1", "def"), TRUE }
+        };
+        // @formatter:on
+        
+        assertNotNull(filter.get("FOO"));
+        assertNotNull(filter.get("BAR"));
+        assertNull(filter.get("FOO.1"));
+        assertNull(filter.get("BAR.1"));
+        assertFilters(testData, filter);
+        
+    }
+    
+    private void assertFilters(Object[][] testData, Map<String,ExpressionFilter> filter) {
+        for (Object[] item : testData) {
+            String field = (String) item[0];
+            Key key = (Key) item[1];
+            Boolean expected = (Boolean) item[2];
+            String message = String.format("Field filter '%s' apply is not %s for key %s", field, expected, key);
+            assertEquals(message, expected, filter.get(field).apply(key));
+        }
     }
     
     @Test
@@ -702,7 +932,7 @@ public class EventDataQueryExpressionVisitorTest {
         final AtomicInteger completed = new AtomicInteger();
         Runnable runnable = () -> {
             try {
-                final Map<String,? extends Predicate<Key>> filter = ExpressionFilter.clone(base);
+                final Map<String,? extends PeekingPredicate<Key>> filter = ExpressionFilter.clone(base);
                 started.getAndIncrement();
                 synchronized (gate) {
                     gate.wait();

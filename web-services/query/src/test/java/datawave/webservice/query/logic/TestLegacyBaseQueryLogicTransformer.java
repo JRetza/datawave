@@ -2,7 +2,8 @@ package datawave.webservice.query.logic;
 
 import static org.easymock.EasyMock.expect;
 import static org.easymock.EasyMock.isA;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertNotNull;
 
 import java.util.Arrays;
 import java.util.List;
@@ -39,7 +40,7 @@ public class TestLegacyBaseQueryLogicTransformer {
         }
         
         // Verify results
-        assertTrue("Expected an exception to be thrown due to null param", null != result1);
+        assertNotNull("Expected an exception to be thrown due to null param", result1);
     }
     
     @Test
@@ -52,12 +53,12 @@ public class TestLegacyBaseQueryLogicTransformer {
         
         // Run the test
         PowerMock.replayAll();
-        TestTransformer subject = new TestTransformer(new MarkingFunctions.NoOp(), this.response);
+        TestTransformer subject = new TestTransformer(new MarkingFunctions.Default(), this.response);
         BaseQueryResponse result1 = subject.createResponse(this.resultsPage);
         PowerMock.verifyAll();
         
         // Verify results
-        assertTrue("BaseQueryResponse should not be null", result1 == this.response);
+        assertSame("BaseQueryResponse should not be null", result1, this.response);
     }
     
     @Test
@@ -68,12 +69,12 @@ public class TestLegacyBaseQueryLogicTransformer {
         
         // Run the test
         PowerMock.replayAll();
-        TestTransformer subject = new TestTransformer(new MarkingFunctions.NoOp(), this.response);
+        TestTransformer subject = new TestTransformer(new MarkingFunctions.Default(), this.response);
         BaseQueryResponse result1 = subject.createResponse(this.resultsPage);
         PowerMock.verifyAll();
         
         // Verify results
-        assertTrue("BaseQueryResponse should not be null", result1 == this.response);
+        assertSame("BaseQueryResponse should not be null", result1, this.response);
     }
     
     private class TestTransformer extends BaseQueryLogicTransformer<Map.Entry<?,?>,EventBase> {

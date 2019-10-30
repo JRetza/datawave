@@ -30,8 +30,13 @@
     </property>
 
     <property>
-        <name>nytctlc.data.category.date</name>
+        <name>nyctlc.data.category.date</name>
         <value>LPEP_PICKUP_DATETIME</value>
+    </property>
+
+    <property>
+        <name>nyctlc.data.category.date.format</name>
+        <value>yyyy-MM-dd HH:mm:ss</value>
     </property>
 
     <property>
@@ -45,10 +50,21 @@
         <value>ALL</value>
     </property>
 
+    <!-- NYCTLC Helper Options -->
+    <property>
+        <name>nyctlc.generate.extra.geometries</name>
+        <value>true</value>
+    </property>
+
+    <property>
+        <name>nyctlc.generate.overloaded.composite</name>
+        <value>true</value>
+    </property>
+
     <!-- Indexing -->
     <property>
         <name>nyctlc.data.category.index</name>
-        <value>PICKUP_LOCATION,DROPOFF_LOCATION,PICKUP_LOCATION_DATETIME,DROPOFF_LOCATION_DATETIME,PICKUP_LOCATION_TOTAL_AMOUNT,DROPOFF_LOCATION_TOTAL_AMOUNT</value>
+        <value>ALL_LOCATIONS,ALL_POINTS,ALL_POINTS_GEO,PICKUP_LOCATION,DROPOFF_LOCATION,TOTAL_AMOUNT_INDEXED,PICKUP_LOCATION_DATETIME,DROPOFF_LOCATION_DATETIME,PICKUP_LOCATION_TOTAL_AMOUNT,DROPOFF_LOCATION_TOTAL_AMOUNT,ALL_LOCATIONS_TOTAL_AMOUNT,ALL_LOCATIONS_OVERLOADED</value>
         <description>These are the fields to index (delimited by first separator).
         </description>
     </property>
@@ -174,6 +190,31 @@
         <value>datawave.data.type.GeometryType</value>
     </property>
 
+    <property>
+        <name>nyctlc.ALL_LOCATIONS.data.field.type.class</name>
+        <value>datawave.data.type.GeometryType</value>
+    </property>
+
+    <property>
+        <name>nyctlc.ALL_POINTS.data.field.type.class</name>
+        <value>datawave.data.type.GeometryType</value>
+    </property>
+
+    <property>
+        <name>nyctlc.ALL_POINTS_GEO.data.field.type.class</name>
+        <value>datawave.data.type.GeoType</value>
+    </property>
+
+    <property>
+        <name>nyctlc.ALL_LOCATIONS_OVERLOADED.data.field.type.class</name>
+        <value>datawave.data.type.GeometryType</value>
+    </property>
+
+    <property>
+        <name>nyctlc.TOTAL_AMOUNT_INDEXED.data.field.type.class</name>
+        <value>datawave.data.type.NumberType</value>
+    </property>
+
     <!-- Normalization for Composite Fields -->
     <property>
         <name>nyctlc.PICKUP_LOCATION_DATETIME.data.field.type.class</name>
@@ -195,19 +236,70 @@
         <value>datawave.data.type.NoOpType</value>
     </property>
 
+    <property>
+        <name>nyctlc.ALL_LOCATIONS_TOTAL_AMOUNT.data.field.type.class</name>
+        <value>datawave.data.type.NoOpType</value>
+    </property>
+
     <!-- Composite Field Configuration -->
     <property>
-        <name>nyctlc.data.composite.name</name>
-        <value>PICKUP_LOCATION_DATETIME,DROPOFF_LOCATION_DATETIME,PICKUP_LOCATION_TOTAL_AMOUNT,DROPOFF_LOCATION_TOTAL_AMOUNT</value>
+        <name>nyctlc.PICKUP_LOCATION_DATETIME.data.composite.field.map</name>
+        <value>PICKUP_LOCATION,LPEP_PICKUP_DATETIME</value>
     </property>
 
     <property>
-        <name>nyctlc.data.composite.fields</name>
-        <value>PICKUP_LOCATION.LPEP_PICKUP_DATETIME,DROPOFF_LOCATION.LPEP_DROPOFF_DATETIME,PICKUP_LOCATION.TOTAL_AMOUNT,DROPOFF_LOCATION.TOTAL_AMOUNT</value>
+        <name>nyctlc.DROPOFF_LOCATION_DATETIME.data.composite.field.map</name>
+        <value>DROPOFF_LOCATION,LPEP_DROPOFF_DATETIME</value>
     </property>
 
     <property>
-        <name>nyctlc.data.composite.fields.fixed.length</name>
-        <value>PICKUP_LOCATION,DROPOFF_LOCATION</value>
+        <name>nyctlc.PICKUP_LOCATION_TOTAL_AMOUNT.data.composite.field.map</name>
+        <value>PICKUP_LOCATION,TOTAL_AMOUNT</value>
+    </property>
+
+    <property>
+        <name>nyctlc.DROPOFF_LOCATION_TOTAL_AMOUNT.data.composite.field.map</name>
+        <value>DROPOFF_LOCATION,TOTAL_AMOUNT</value>
+    </property>
+
+    <property>
+        <name>nyctlc.ALL_LOCATIONS_TOTAL_AMOUNT.data.composite.field.map</name>
+        <value>ALL_LOCATIONS,TOTAL_AMOUNT</value>
+    </property>
+
+    <property>
+        <name>nyctlc.ALL_LOCATIONS_OVERLOADED.data.composite.field.map</name>
+        <value>ALL_LOCATIONS_OVERLOADED,TOTAL_AMOUNT</value>
+    </property>
+
+    <!-- define custom separator for the composites -->
+    <property>
+        <name>nyctlc.PICKUP_LOCATION_DATETIME.data.composite.field.separator</name>
+        <value> </value>
+    </property>
+
+    <property>
+        <name>nyctlc.DROPOFF_LOCATION_DATETIME.data.composite.field.separator</name>
+        <value> </value>
+    </property>
+
+    <property>
+        <name>nyctlc.PICKUP_LOCATION_TOTAL_AMOUNT.data.composite.field.separator</name>
+        <value> </value>
+    </property>
+
+    <property>
+        <name>nyctlc.DROPOFF_LOCATION_TOTAL_AMOUNT.data.composite.field.separator</name>
+        <value> </value>
+    </property>
+
+    <property>
+        <name>nyctlc.ALL_LOCATIONS_TOTAL_AMOUNT.data.composite.field.separator</name>
+        <value> </value>
+    </property>
+
+    <property>
+        <name>nyctlc.ALL_LOCATIONS_OVERLOADED.data.composite.field.separator</name>
+        <value> </value>
     </property>
 </configuration>

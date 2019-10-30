@@ -1,34 +1,10 @@
 package datawave.ingest.mapreduce.job;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.net.SocketAddress;
-import java.net.SocketTimeoutException;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.SortedMap;
-import java.util.Stack;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-
+import com.google.common.base.Objects;
+import com.google.common.collect.Lists;
 import datawave.ingest.data.TypeRegistry;
 import datawave.ingest.mapreduce.StandaloneStatusReporter;
 import datawave.util.cli.PasswordConverter;
-
 import org.apache.accumulo.core.client.AccumuloException;
 import org.apache.accumulo.core.client.AccumuloSecurityException;
 import org.apache.accumulo.core.client.ClientConfiguration;
@@ -37,14 +13,13 @@ import org.apache.accumulo.core.client.TableNotFoundException;
 import org.apache.accumulo.core.client.ZooKeeperInstance;
 import org.apache.accumulo.core.client.admin.TableOperations;
 import org.apache.accumulo.core.client.impl.ClientContext;
+import org.apache.accumulo.core.client.impl.Credentials;
 import org.apache.accumulo.core.client.impl.MasterClient;
-import org.apache.accumulo.core.client.impl.Tables;
 import org.apache.accumulo.core.client.security.tokens.PasswordToken;
 import org.apache.accumulo.core.conf.AccumuloConfiguration;
 import org.apache.accumulo.core.master.thrift.MasterClientService.Iface;
 import org.apache.accumulo.core.master.thrift.MasterMonitorInfo;
 import org.apache.accumulo.core.master.thrift.TableInfo;
-import org.apache.accumulo.core.client.impl.Credentials;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileChecksum;
 import org.apache.hadoop.fs.FileStatus;
@@ -64,8 +39,28 @@ import org.apache.hadoop.util.ToolRunner;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
-import com.google.common.base.Objects;
-import com.google.common.collect.Lists;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketAddress;
+import java.net.SocketTimeoutException;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Stack;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 /**
  * A processor whose job is to watch for completed Bulk Ingest jobs and bring the map files produced by them online in accumulo. This class attempts to bring
@@ -82,6 +77,7 @@ public final class BulkIngestMapFileLoader implements Runnable {
     private static int MAJC_WAIT_TIMEOUT = 0;// 2 * 60 * 1000;
     private static int SHUTDOWN_PORT = 24111;
     private static boolean FIFO = true;
+    private static boolean INGEST_METRICS = true;
     
     public static final String COMPLETE_FILE_MARKER = "job.complete";
     public static final String LOADING_FILE_MARKER = "job.loading";
@@ -102,7 +98,7 @@ public final class BulkIngestMapFileLoader implements Runnable {
     private URI destHdfs;
     private String jobtracker;
     private StandaloneStatusReporter reporter = new StandaloneStatusReporter();
-    private boolean running;
+    private volatile boolean running;
     private ExecutorService executor;
     
     public static void main(String[] args) throws AccumuloSecurityException, IOException {
@@ -115,7 +111,10 @@ public final class BulkIngestMapFileLoader implements Runnable {
         ArrayList<String[]> properties = new ArrayList<>();
         
         if (args.length < 6) {
-            log.error("usage: BulkIngestMapFileLoader hdfsWorkDir jobDirPattern instanceName zooKeepers username password [-sleepTime sleepTime] [-majcThreshold threshold] [-majcCheckInterval count] [-majcDelay majcDelay] [-seqFileHdfs seqFileSystemUri] [-srcHdfs srcFileSystemURI] [-destHdfs destFileSystemURI] [-jt jobTracker] [-shutdownPort portNum] confFile [{confFile}]");
+            log.error("usage: BulkIngestMapFileLoader hdfsWorkDir jobDirPattern instanceName zooKeepers username password "
+                            + "[-sleepTime sleepTime] [-majcThreshold threshold] [-majcCheckInterval count] [-majcDelay majcDelay] "
+                            + " [-seqFileHdfs seqFileSystemUri] [-srcHdfs srcFileSystemURI] [-destHdfs destFileSystemURI] [-jt jobTracker] "
+                            + "[-ingestMetricsDisabled] [-shutdownPort portNum] confFile [{confFile}]");
             System.exit(-1);
         }
         
@@ -271,6 +270,9 @@ public final class BulkIngestMapFileLoader implements Runnable {
                         log.error("-shutdownPort must be followed a port number", e);
                         System.exit(-2);
                     }
+                } else if ("-ingestMetricsDisabled".equalsIgnoreCase(args[i])) {
+                    INGEST_METRICS = false;
+                    log.info("Ingest metrics disabled");
                 } else if ("-lifo".equalsIgnoreCase(args[i])) {
                     FIFO = false;
                     log.info("Changing processing order to LIFO");
@@ -374,6 +376,7 @@ public final class BulkIngestMapFileLoader implements Runnable {
             }
         } catch (IOException e) {
             log.error("Unable to create shutdown listener socket. Exiting.", e);
+            System.exit(-3);
         }
     }
     
@@ -551,12 +554,15 @@ public final class BulkIngestMapFileLoader implements Runnable {
             // not carry block size or replication across. This is especially important because by default the
             // MapReduce jobs produce output with the replication set to 1 and we definitely don't want to preserve
             // that when copying across clusters.
-            DistCpOptions options = new DistCpOptions(srcPath, destPath);
-            options.setLogPath(logPath);
-            options.setSyncFolder(true);
-            options.preserve(DistCpOptions.FileAttribute.USER);
-            options.preserve(DistCpOptions.FileAttribute.GROUP);
-            options.preserve(DistCpOptions.FileAttribute.PERMISSION);
+            //@formatter:off
+            DistCpOptions options = new DistCpOptions.Builder(srcPath, destPath)
+                .withLogPath(logPath)
+                .withSyncFolder(true)
+                .preserve(DistCpOptions.FileAttribute.USER)
+                .preserve(DistCpOptions.FileAttribute.GROUP)
+                .preserve(DistCpOptions.FileAttribute.PERMISSION)
+                .build();
+            //@formatter:on
             String[] args = (jobtracker == null) ? new String[0] : new String[] {"-jt", jobtracker};
             int res = ToolRunner.run(conf, new DistCp(conf, options), args);
             if (res != 0) {
@@ -668,7 +674,7 @@ public final class BulkIngestMapFileLoader implements Runnable {
         
         Instance instance = new ZooKeeperInstance(ClientConfiguration.loadDefault().withInstance(instanceName).withZkHosts(zooKeepers));
         TableOperations tops = instance.getConnector(credentials.getPrincipal(), credentials.getToken()).tableOperations();
-        SortedMap<String,String> tableIds = Tables.getNameToIdMap(instance);
+        Map<String,String> tableIds = tops.tableIdMap();
         FileStatus[] tableDirs = fs.globStatus(new Path(mapFilesDir, "*"));
         
         // sort the table dirs in priority order based on the configuration
@@ -1098,7 +1104,7 @@ public final class BulkIngestMapFileLoader implements Runnable {
         try {
             log.info("Marking " + renameCallables.size() + " sequence files from flagged to loaded");
             
-            if (renameCallables.size() > 0) {
+            if (!renameCallables.isEmpty()) {
                 List<Future<Boolean>> execResults = executor.invokeAll(renameCallables);
                 
                 for (Future<Boolean> future : execResults) {
@@ -1121,49 +1127,52 @@ public final class BulkIngestMapFileLoader implements Runnable {
     }
     
     private void writeStats(Path[] jobDirectories) throws IOException {
-        long now = System.currentTimeMillis();
-        for (Path p : jobDirectories)
-            reporter.getCounter("MapFileLoader.EndTimes", p.getName()).increment(now);
-        // Write out the metrics.
-        // We are going to serialize the counters into a file in HDFS.
-        // The context was set in the processKeyValues method below, and should not be null. We'll guard against NPE anyway
-        FileSystem fs = getFileSystem(seqFileHdfs);
-        RawLocalFileSystem rawFS = new RawLocalFileSystem();
-        rawFS.setConf(conf);
-        CompressionCodec cc = new GzipCodec();
-        CompressionType ct = CompressionType.BLOCK;
-        
-        Counters c = reporter.getCounters();
-        if (null != c && c.countCounters() > 0) {
-            // Serialize the counters to a file in HDFS.
-            Path src = new Path(File.createTempFile("MapFileLoader", ".metrics").getAbsolutePath());
-            Writer writer = SequenceFile.createWriter(conf, Writer.file(rawFS.makeQualified(src)), Writer.keyClass(NullWritable.class),
-                            Writer.valueClass(Counters.class), Writer.compression(ct, cc));
-            writer.append(NullWritable.get(), c);
-            writer.close();
+        if (!INGEST_METRICS) {
+            log.info("ingest metrics disabled");
+        } else {
+            long now = System.currentTimeMillis();
+            for (Path p : jobDirectories)
+                reporter.getCounter("MapFileLoader.EndTimes", p.getName()).increment(now);
+            // Write out the metrics.
+            // We are going to serialize the counters into a file in HDFS.
+            // The context was set in the processKeyValues method below, and should not be null. We'll guard against NPE anyway
+            FileSystem fs = getFileSystem(seqFileHdfs);
+            RawLocalFileSystem rawFS = new RawLocalFileSystem();
+            rawFS.setConf(conf);
+            CompressionCodec cc = new GzipCodec();
+            CompressionType ct = CompressionType.BLOCK;
             
-            // Now we will try to move the file to HDFS.
-            // Copy the file to the temp dir
-            try {
-                Path mDir = new Path(workDir, "MapFileLoaderMetrics");
-                if (!fs.exists(mDir))
-                    fs.mkdirs(mDir);
-                Path dst = new Path(mDir, src.getName());
-                log.info("Copying file " + src.toString() + " to " + dst.toString());
-                fs.copyFromLocalFile(false, true, src, dst);
-                // If this worked, then remove the local file
-                rawFS.delete(src, false);
-                // also remove the residual crc file
-                rawFS.delete(getCrcFile(src), false);
-            } catch (IOException e) {
-                // If an error occurs in the copy, then we will leave in the local metrics directory.
-                log.error("Error copying metrics file into HDFS, will remain in metrics directory.");
+            Counters c = reporter.getCounters();
+            if (null != c && c.countCounters() > 0) {
+                // Serialize the counters to a file in HDFS.
+                Path src = new Path(File.createTempFile("MapFileLoader", ".metrics").getAbsolutePath());
+                Writer writer = SequenceFile.createWriter(conf, Writer.file(rawFS.makeQualified(src)), Writer.keyClass(NullWritable.class),
+                                Writer.valueClass(Counters.class), Writer.compression(ct, cc));
+                writer.append(NullWritable.get(), c);
+                writer.close();
+                
+                // Now we will try to move the file to HDFS.
+                // Copy the file to the temp dir
+                try {
+                    Path mDir = new Path(workDir, "MapFileLoaderMetrics");
+                    if (!fs.exists(mDir))
+                        fs.mkdirs(mDir);
+                    Path dst = new Path(mDir, src.getName());
+                    log.info("Copying file " + src + " to " + dst);
+                    fs.copyFromLocalFile(false, true, src, dst);
+                    // If this worked, then remove the local file
+                    rawFS.delete(src, false);
+                    // also remove the residual crc file
+                    rawFS.delete(getCrcFile(src), false);
+                } catch (IOException e) {
+                    // If an error occurs in the copy, then we will leave in the local metrics directory.
+                    log.error("Error copying metrics file into HDFS, will remain in metrics directory.");
+                }
+                
+                // reset reporter so that old metrics don't persist over time
+                this.reporter = new StandaloneStatusReporter();
             }
-            
-            // reset reporter so that old metrics don't persist over time
-            this.reporter = new StandaloneStatusReporter();
         }
-        
     }
     
     private Path getCrcFile(Path path) {

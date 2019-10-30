@@ -5,7 +5,6 @@ import datawave.query.iterator.DocumentIterator;
 import datawave.query.iterator.NestedIterator;
 import datawave.query.iterator.logic.DocumentAggregatingIterator;
 import datawave.query.iterator.logic.IndexIteratorBridge;
-import datawave.query.parser.JavaRegexAnalyzer.JavaRegexParseException;
 import org.apache.accumulo.core.data.Key;
 import org.apache.accumulo.core.data.PartialKey;
 import org.apache.hadoop.fs.Path;
@@ -64,13 +63,14 @@ public class IndexRegexIteratorBuilder extends IvaratorBuilder implements Iterat
                                 .withHdfsBackedSetBufferSize(ivaratorCacheBufferSize).withMaxRangeSplit(maxRangeSplit).withMaxOpenFiles(ivaratorMaxOpenFiles)
                                 .withFileSystem(hdfsFileSystem).withUniqueDir(new Path(hdfsCacheURI)).withQueryLock(queryLock).allowDirResuse(true)
                                 .withReturnKeyType(PartialKey.ROW_COLFAM_COLQUAL_COLVIS_TIME).withSortedUUIDs(sortedUIDs)
-                                .withCompositePredicateFilters(createCompositePredicateFilters(field)).build();
+                                .withCompositeMetadata(compositeMetadata).withCompositeSeekThreshold(compositeSeekThreshold).withTypeMetadata(typeMetadata)
+                                .withIteratorEnv(env).build();
                 
                 if (collectTimingDetails) {
                     regexIterator.setCollectTimingDetails(true);
                     regexIterator.setQuerySpanCollector(this.querySpanCollector);
                 }
-                regexIterator.init(source, null, null);
+                regexIterator.init(source, null, env);
                 log.debug("Created a DatawaveFieldIndexRegexIteratorJexl: " + regexIterator);
                 
                 boolean canBuildDocument = this.fieldsToAggregate == null ? false : this.fieldsToAggregate.contains(field);

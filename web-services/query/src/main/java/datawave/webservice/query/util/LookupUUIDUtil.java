@@ -2,6 +2,7 @@ package datawave.webservice.query.util;
 
 import java.security.Principal;
 import java.text.ParseException;
+import java.time.format.DateTimeParseException;
 import java.util.UUID;
 import java.util.List;
 import java.util.ArrayList;
@@ -138,7 +139,7 @@ public class LookupUUIDUtil {
         // Assign the begin date
         try {
             this.beginAsDate = DateHelper.parseWithGMT(this.lookupUUIDConfiguration.getBeginDate());
-        } catch (IllegalArgumentException e) {
+        } catch (DateTimeParseException e) {
             this.log.error(e.getMessage(), e);
         }
         
@@ -333,7 +334,7 @@ public class LookupUUIDUtil {
             try {
                 queryParameters.putSingle(QueryParameters.QUERY_BEGIN, QueryParametersImpl.formatDate(this.beginAsDate));
             } catch (ParseException e) {
-                throw new RuntimeException("Unable to format new query begin date: " + this.beginAsDate.toString());
+                throw new RuntimeException("Unable to format new query begin date: " + this.beginAsDate);
             }
             
             final Date endDate = DateUtils.addDays(new Date(), 2);
@@ -343,7 +344,7 @@ public class LookupUUIDUtil {
             try {
                 queryParameters.putSingle(QueryParameters.QUERY_END, QueryParametersImpl.formatDate(endDate));
             } catch (ParseException e) {
-                throw new RuntimeException("Unable to format new query end date: " + endDate.toString());
+                throw new RuntimeException("Unable to format new query end date: " + endDate);
             }
             
             final Date expireDate = new Date(endDate.getTime() + 1000 * 60 * 60);
@@ -353,7 +354,7 @@ public class LookupUUIDUtil {
             try {
                 queryParameters.putSingle(QueryParameters.QUERY_EXPIRATION, QueryParametersImpl.formatDate(expireDate));
             } catch (ParseException e) {
-                throw new RuntimeException("Unable to format new query expr date: " + expireDate.toString());
+                throw new RuntimeException("Unable to format new query expr date: " + expireDate);
             }
             queryParameters.putSingle(QueryParameters.QUERY_PERSISTENCE, QueryPersistence.TRANSIENT.name());
             queryParameters.putSingle(QueryParameters.QUERY_TRACE, "false");
@@ -838,7 +839,7 @@ public class LookupUUIDUtil {
         
         List<String> paramList = criteria.getQueryParameters().remove(QueryParameters.QUERY_PARAMS);
         String params = null;
-        if (paramList != null && paramList.size() > 0) {
+        if (paramList != null && !paramList.isEmpty()) {
             params = paramList.get(0);
         }
         // Add Lucene syntax to the parameters, except during a call for next content

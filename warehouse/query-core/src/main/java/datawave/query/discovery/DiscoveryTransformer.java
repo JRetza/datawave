@@ -35,7 +35,7 @@ public class DiscoveryTransformer extends BaseQueryLogicTransformer<DiscoveredTh
     private ResponseObjectFactory responseObjectFactory;
     
     public DiscoveryTransformer(BaseQueryLogic<DiscoveredThing> logic, Query settings, QueryModel qm) {
-        super(new MarkingFunctions.NoOp());
+        super(new MarkingFunctions.Default());
         this.markingFunctions = logic.getMarkingFunctions();
         this.responseObjectFactory = logic.getResponseObjectFactory();
         this.logic = logic;
@@ -66,7 +66,7 @@ public class DiscoveryTransformer extends BaseQueryLogicTransformer<DiscoveredTh
         fields.add(this.makeField("DATA TYPE", markings, "", 0L, thing.getType()));
         
         // If requested return counts separated by colvis, all counts by colvis could be > total record count
-        if (thing.getCountsByColumnVisibility() != null && thing.getCountsByColumnVisibility().size() > 0) {
+        if (thing.getCountsByColumnVisibility() != null && !thing.getCountsByColumnVisibility().isEmpty()) {
             for (Map.Entry<Writable,Writable> entry : thing.getCountsByColumnVisibility().entrySet()) {
                 try {
                     Map<String,String> eMarkings = this.markingFunctions.translateFromColumnVisibility(new ColumnVisibility(entry.getKey().toString()));

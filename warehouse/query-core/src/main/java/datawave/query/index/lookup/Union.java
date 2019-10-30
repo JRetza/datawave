@@ -22,8 +22,8 @@ import com.google.common.collect.FluentIterable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
-/*
- * This will create a union of global index range streams.
+/**
+ * Creates a union of global index range streams.
  */
 public class Union implements IndexStream {
     protected final PriorityQueue<IndexStream> children;
@@ -57,7 +57,7 @@ public class Union implements IndexStream {
             childrenCount++;
             if (log.isTraceEnabled()) {
                 log.trace("Union of " + stream.currentNode() + " " + stream.hasNext() + " " + JexlStringBuildingVisitor.buildQuery(stream.currentNode()));
-                log.trace("Union of " + stream.toString() + " " + stream.context());
+                log.trace("Union of " + stream + " " + stream.context());
             }
             
             if (StreamContext.NO_OP == stream.context())
@@ -210,8 +210,7 @@ public class Union implements IndexStream {
         
         currNode = null;
         if (nodes.size() == 1) {
-            JexlNode firstNode = nodes.iterator().next();
-            currNode = firstNode;
+            currNode = nodes.iterator().next();
             
         } else {
             currNode = JexlNodeFactory.createUnwrappedOrNode(FluentIterable.from(nodes).filter(Predicates.notNull()).toList());
@@ -264,7 +263,7 @@ public class Union implements IndexStream {
         }
         
         public Union build(ExecutorService service) {
-            if (todo.size() > 0) {
+            if (!todo.isEmpty()) {
                 
                 Collection<IndexStream> streams = ConcurrentScannerInitializer.initializeScannerStreams(todo, service);
                 for (IndexStream stream : streams) {

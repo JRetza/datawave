@@ -16,7 +16,6 @@ import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 import org.apache.zookeeper.ZooKeeper;
 import org.easymock.EasyMock;
-import org.easymock.IAnswer;
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -55,10 +54,6 @@ public class MetadataTableSplitsTest {
     protected static String FILE_STATUS_GROUP;
     
     public static class WrappedLocalFileSystem extends RawLocalFileSystem {
-        
-        public WrappedLocalFileSystem() {
-            
-        }
         
         @Override
         public FileStatus getFileStatus(Path f) throws IOException {
@@ -168,6 +163,10 @@ public class MetadataTableSplitsTest {
         URL url = MetadataTableSplitsTest.class.getResource("/datawave/ingest/mapreduce/job/all-splits.txt");
         Assert.assertNotNull("MetadataTableSplitsTest#setup failed to load test cache directory.", url);
         mockConfiguration.put(MetadataTableSplits.SPLITS_CACHE_DIR, url.getPath().substring(0, url.getPath().lastIndexOf(Path.SEPARATOR)));
+    }
+    
+    public void setSplitsCacheDir(String splitsCacheDir) {
+        mockConfiguration.put(MetadataTableSplits.SPLITS_CACHE_DIR, splitsCacheDir);
     }
     
     @After
@@ -485,15 +484,15 @@ public class MetadataTableSplitsTest {
     public void testUpdateNoFile() throws IOException {
         logger.info("testUpdateNoFile called...");
         setupConfiguration();
+        setSplitsCacheDir(String.format("/random/dir%s/must/not/exist", (int) (Math.random() * 100) + 1));
         try {
             MetadataTableSplits uut = new MetadataTableSplits(createMockJobConf());
             uut.update();
             Assert.assertNotNull("MetadataTableSplits constructor failed to construct an instance.", uut);
             Assert.assertNull("MetadataTableSplits should have no splits", uut.getSplits());
-            
         } finally {
             
-            logger.info("testGetSplitsContention completed.");
+            logger.info("testUpdateNoFile completed.");
         }
         
     }

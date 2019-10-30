@@ -1,6 +1,5 @@
 package datawave.query.edge;
 
-import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
@@ -136,7 +135,7 @@ public class DefaultExtendedEdgeQueryLogic extends EdgeQueryLogic {
             if (log.isTraceEnabled()) {
                 log.trace("Query being sent to the filter iterator: " + normalizedQuery);
             }
-            IteratorSetting edgeIteratorSetting = new IteratorSetting(currentIteratorPriority, EdgeFilterIterator.class.getName() + "."
+            IteratorSetting edgeIteratorSetting = new IteratorSetting(currentIteratorPriority, EdgeFilterIterator.class.getSimpleName() + "_"
                             + currentIteratorPriority, EdgeFilterIterator.class);
             edgeIteratorSetting.addOption(EdgeFilterIterator.JEXL_OPTION, normalizedQuery);
             edgeIteratorSetting.addOption(EdgeFilterIterator.PROTOBUF_OPTION, "TRUE");

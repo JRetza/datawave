@@ -8,8 +8,8 @@ import java.util.Map.Entry;
 import datawave.query.attributes.Document;
 import datawave.query.util.TraceIterators;
 
-import org.apache.accumulo.trace.instrument.Span;
-import org.apache.accumulo.trace.instrument.Trace;
+import org.apache.accumulo.core.trace.Span;
+import org.apache.accumulo.core.trace.Trace;
 import org.apache.accumulo.core.data.ByteSequence;
 import org.apache.accumulo.core.data.Range;
 
@@ -51,8 +51,7 @@ public class AccumuloTreeIterable<S,T extends Comparable<T>> implements Iterable
             }
             
             Iterator<Entry<S,Document>> wrapper = TraceIterators.transform(tree, from -> {
-                Entry<S,Document> entry = Maps.immutableEntry(from, tree.document());
-                return entry;
+                return Maps.immutableEntry(from, tree.document());
             }, "Field Index");
             
             return Iterators.transform(wrapper, func);

@@ -1,7 +1,9 @@
 package datawave.ingest.mapreduce.job;
 
-import static org.hamcrest.CoreMatchers.*;
-import static org.junit.Assert.*;
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.equalTo;
+import static org.junit.Assert.assertThat;
+import static org.junit.Assert.fail;
 
 import java.io.File;
 import java.io.IOException;
@@ -13,6 +15,8 @@ import java.util.SortedSet;
 import java.util.TreeMap;
 import java.util.TreeSet;
 
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.apache.accumulo.core.client.AccumuloException;
 import org.apache.accumulo.core.client.AccumuloSecurityException;
 import org.apache.accumulo.core.client.Connector;
@@ -37,8 +41,11 @@ import datawave.ingest.data.config.ingest.AccumuloHelper;
 import datawave.ingest.mapreduce.handler.shard.ShardIdFactory;
 import datawave.ingest.mapreduce.handler.shard.ShardedDataTypeHandler;
 import datawave.util.time.DateHelper;
+import datawave.util.TableName;
 
 public class ShardedTableMapFileTest {
+    private static final Log LOG = LogFactory.getLog(ShardedTableMapFileTest.class);
+    
     public static final String PASSWORD = "123";
     public static final String USERNAME = "root";
     private static final String TABLE_NAME = "unitTestTable";
@@ -49,7 +56,7 @@ public class ShardedTableMapFileTest {
     public static void defineShardLocationsFile() throws IOException {
         conf = new Configuration();
         conf.setInt(ShardIdFactory.NUM_SHARDS, SHARDS_PER_DAY);
-        conf.set(ShardedDataTypeHandler.SHARDED_TNAMES, "shard");
+        conf.set(ShardedDataTypeHandler.SHARDED_TNAMES, TableName.SHARD);
     }
     
     @Test
@@ -67,15 +74,21 @@ public class ShardedTableMapFileTest {
         splits.put(new Text("zEndRow"), "location2_1234");
         
         Path file = createSplitsFile(splits, conf, 1);
-        conf.set(ShardedTableMapFile.SHARDED_MAP_FILE_PATHS_RAW, TABLE_NAME + "=" + file.toString());
+        conf.set(ShardedTableMapFile.SHARDED_MAP_FILE_PATHS_RAW, TABLE_NAME + "=" + file);
         ShardedTableMapFile.setupFile(conf);
         TreeMap<Text,String> result = ShardedTableMapFile.getShardIdToLocations(conf, TABLE_NAME);
         Assert.assertEquals("location2_1234", result.get(new Text("zEndRow")).toString());
         Assert.assertEquals(1, result.size());
     }
     
-    @Test
+    @Test(timeout = 240000)
     public void testWriteSplitsToAccumuloAndReadThem() throws Exception {
+        
+        // Added timeout to this test b/c it could hang infinitely without failing, e.g., whenever
+        // MiniAccumuloCluster starts up but tserver subsequently dies. To troubleshoot timeout errors
+        // here in the future, the MAC instance's local /tmp/ path should logged in
+        // createMiniAccumuloWithTestTableAndSplits method
+        
         Configuration conf = new Configuration();
         conf.setInt(ShardIdFactory.NUM_SHARDS, 1);
         conf.setInt(ShardedTableMapFile.SHARDS_BALANCED_DAYS_TO_VERIFY, 1);
@@ -108,7 +121,9 @@ public class ShardedTableMapFileTest {
     private MiniAccumuloCluster createMiniAccumuloWithTestTableAndSplits(SortedSet<Text> sortedSet) throws IOException, InterruptedException,
                     AccumuloException, AccumuloSecurityException, TableExistsException, TableNotFoundException {
         MiniAccumuloCluster accumuloCluster;
-        accumuloCluster = new MiniAccumuloCluster(Files.createTempDir(), PASSWORD);
+        File clusterDir = Files.createTempDir();
+        LOG.info("Created local directory for MiniAccumuloCluster: " + clusterDir.getAbsolutePath());
+        accumuloCluster = new MiniAccumuloCluster(clusterDir, PASSWORD);
         accumuloCluster.start();
         
         Connector connector = accumuloCluster.getConnector(USERNAME, PASSWORD);
@@ -290,6 +305,30 @@ public class ShardedTableMapFileTest {
         ShardedTableMapFile.validateShardIdLocations(conf, tableName, 1, locations);
     }
     
+    @Test(expected = IllegalStateException.class)
+    public void testUnbalancedMaxMoreThanConfigured() throws Exception {
+        String tableName = "unbalancedMoreSplitsThenMaxPer";
+        SortedMap<Text,String> splits = simulateMultipleShardsPerTServer(tableName, 3);
+        conf.setInt(ShardedTableMapFile.MAX_SHARDS_PER_TSERVER, 2);
+        
+        createSplitsFile(splits, conf, splits.size(), tableName);
+        Map<Text,String> locations = ShardedTableMapFile.getShardIdToLocations(conf, tableName);
+        // this should cause the exception
+        ShardedTableMapFile.validateShardIdLocations(conf, tableName, 0, locations);
+    }
+    
+    @Test
+    public void testUnbalancedButNotMoreThanConfigured() throws Exception {
+        String tableName = "unbalancedNotMoreSplitsThenMaxPer";
+        SortedMap<Text,String> splits = simulateMultipleShardsPerTServer(tableName, 3);
+        conf.setInt(ShardedTableMapFile.MAX_SHARDS_PER_TSERVER, 3);
+        
+        createSplitsFile(splits, conf, splits.size(), tableName);
+        Map<Text,String> locations = ShardedTableMapFile.getShardIdToLocations(conf, tableName);
+        // this should NOT cause an exception
+        ShardedTableMapFile.validateShardIdLocations(conf, tableName, 0, locations);
+    }
+    
     private SortedMap<Text,String> simulateUnbalancedSplitsForDay(int daysAgo, String tableName) throws IOException {
         // start with a well distributed set of shards per day for 3 days
         SortedMap<Text,String> locations = createDistributedLocations(tableName);
@@ -300,6 +339,28 @@ public class ShardedTableMapFileTest {
             locations.put(new Text(date + "_" + currShard), tserverId);
         }
         
+        return locations;
+    }
+    
+    private SortedMap<Text,String> simulateMultipleShardsPerTServer(String tableName, int shardsPerTServer) throws IOException {
+        SortedMap<Text,String> locations = new TreeMap<>();
+        long now = System.currentTimeMillis();
+        int tserverId = 1;
+        for (int daysAgo = 0; daysAgo <= 2; daysAgo++) {
+            String day = DateHelper.format(now - (daysAgo * DateUtils.MILLIS_PER_DAY));
+            
+            int currShard = 0;
+            while (currShard < SHARDS_PER_DAY) {
+                // increment once, apply this tserver shardsPerTServer times
+                tserverId++;
+                for (int i = 0; i < shardsPerTServer; i++) {
+                    if (currShard >= SHARDS_PER_DAY) {
+                        break;
+                    }
+                    locations.put(new Text(day + "_" + currShard++), Integer.toString(tserverId));
+                }
+            }
+        }
         return locations;
     }
     

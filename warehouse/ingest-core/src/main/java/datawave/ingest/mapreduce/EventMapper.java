@@ -8,7 +8,6 @@ import datawave.ingest.data.RawRecordContainer;
 import datawave.ingest.data.Type;
 import datawave.ingest.data.TypeRegistry;
 import datawave.ingest.data.config.DataTypeHelper;
-import datawave.ingest.data.config.DataTypeHelperImpl;
 import datawave.ingest.data.config.NormalizedContentInterface;
 import datawave.ingest.data.config.NormalizedFieldAndValue;
 import datawave.ingest.data.config.filter.KeyValueFilter;
@@ -19,6 +18,7 @@ import datawave.ingest.data.config.ingest.VirtualIngest;
 import datawave.ingest.input.reader.event.EventErrorSummary;
 import datawave.ingest.mapreduce.handler.DataTypeHandler;
 import datawave.ingest.mapreduce.handler.ExtendedDataTypeHandler;
+import datawave.ingest.mapreduce.handler.error.ErrorDataTypeHandler;
 import datawave.ingest.mapreduce.job.BulkIngestKey;
 import datawave.ingest.mapreduce.job.ConstraintChecker;
 import datawave.ingest.mapreduce.job.metrics.KeyValueCountingContextWriter;
@@ -109,6 +109,8 @@ public class EventMapper<K1,V1 extends RawRecordContainer,K2,V2> extends StatsDE
     
     protected boolean createSequenceFileName = true;
     
+    protected boolean trimSequenceFileName = true;
+    
     protected boolean createRawFileName = true;
     
     public static final String LOAD_DATE_FIELDNAME = "LOAD_DATE";
@@ -116,6 +118,8 @@ public class EventMapper<K1,V1 extends RawRecordContainer,K2,V2> extends StatsDE
     public static final String SEQUENCE_FILE_FIELDNAME = "ORIG_FILE";
     
     public static final String LOAD_SEQUENCE_FILE_NAME = "ingest.event.mapper.load.seq.filename";
+    
+    public static final String TRIM_SEQUENCE_FILE_NAME = "ingest.event.mapper.trim.sequence.filename";
     
     public static final String RAW_FILE_FIELDNAME = "RAW_FILE";
     
@@ -184,6 +188,8 @@ public class EventMapper<K1,V1 extends RawRecordContainer,K2,V2> extends StatsDE
         
         // default to true, but it can be disabled
         createSequenceFileName = context.getConfiguration().getBoolean(LOAD_SEQUENCE_FILE_NAME, true);
+        
+        trimSequenceFileName = context.getConfiguration().getBoolean(TRIM_SEQUENCE_FILE_NAME, true);
         
         createRawFileName = context.getConfiguration().getBoolean(LOAD_RAW_FILE_NAME, true);
         
@@ -416,6 +422,9 @@ public class EventMapper<K1,V1 extends RawRecordContainer,K2,V2> extends StatsDE
             EventErrorSummary errorSummary = (EventErrorSummary) (value.getAuxData());
             value.setAuxData(null);
             
+            // pass the processedCount through via the aux properties
+            value.setAuxProperty(ErrorDataTypeHandler.PROCESSED_COUNT, Integer.toString(errorSummary.getProcessedCount() + 1));
+            
             // delete these keys from the error table. If this fails then nothing will have changed
             if (log.isInfoEnabled())
                 log.info("Purging event from the " + errorSummary.getTableName() + " table");
@@ -442,10 +451,13 @@ public class EventMapper<K1,V1 extends RawRecordContainer,K2,V2> extends StatsDE
                 contextWriter.commit(context);
                 context.progress();
             }
+        } else {
+            // pass the processedCount through via the aux properties
+            value.setAuxProperty(ErrorDataTypeHandler.PROCESSED_COUNT, "1");
         }
         
-        // Determine whether the event date is greater than the interval.
-        if (null != myInterval && 0L != myInterval && (value.getDate() < (now.get() - myInterval))) {
+        // Determine whether the event date is greater than the interval. Excluding fatal error events.
+        if (!value.fatalError() && null != myInterval && 0L != myInterval && (value.getDate() < (now.get() - myInterval))) {
             if (log.isInfoEnabled())
                 log.info("Event with time " + value.getDate() + " older than specified interval of " + (now.get() - myInterval) + ", skipping...");
             getCounter(context, IngestInput.OLD_EVENT).increment(1);
@@ -761,7 +773,11 @@ public class EventMapper<K1,V1 extends RawRecordContainer,K2,V2> extends StatsDE
         // place the sequence filename into the event
         if (createSequenceFileName) {
             seqFileName = NDC.peek();
-            seqFileName = StringUtils.substringAfterLast(seqFileName, "/");
+            
+            if (trimSequenceFileName) {
+                seqFileName = StringUtils.substringAfterLast(seqFileName, "/");
+            }
+            
             if (null != seqFileName) {
                 StringBuilder seqFile = new StringBuilder(seqFileName);
                 

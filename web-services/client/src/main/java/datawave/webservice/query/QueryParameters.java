@@ -6,6 +6,10 @@ import javax.ws.rs.core.MultivaluedMap;
 
 import datawave.validation.ParameterValidator;
 
+/**
+ * QueryParameters passed in from a client, they are validated and passed through to the iterator stack as QueryOptions.
+ *
+ */
 public interface QueryParameters extends ParameterValidator {
     
     String QUERY_STRING = "query";
@@ -13,6 +17,7 @@ public interface QueryParameters extends ParameterValidator {
     String QUERY_PERSISTENCE = "persistence";
     String QUERY_PAGESIZE = "pagesize";
     String QUERY_PAGETIMEOUT = "pageTimeout";
+    String QUERY_MAX_RESULTS_OVERRIDE = "max.results.override";
     String QUERY_AUTHORIZATIONS = "auths";
     String QUERY_EXPIRATION = "expiration";
     String QUERY_TRACE = "trace";
@@ -41,6 +46,12 @@ public interface QueryParameters extends ParameterValidator {
     int getPageTimeout();
     
     void setPageTimeout(int pageTimeout);
+    
+    long getMaxResultsOverride();
+    
+    void setMaxResultsOverride(long maxResults);
+    
+    boolean isMaxResultsOverridden();
     
     String getAuths();
     
